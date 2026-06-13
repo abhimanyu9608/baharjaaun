@@ -1390,20 +1390,29 @@ class _SideOrbsState extends State<_SideOrbs>
   late AnimationController _ctrl;
 
   static final List<List<double>> _leftOrbData = [
-    [0.25, 0.08, 70, 0.80, 12, 0.00],
-    [0.75, 0.30, 36, 1.10, 7,  1.20],
-    [0.15, 0.55, 90, 0.65, 16, 2.50],
-    [0.80, 0.72, 28, 1.35, 5,  0.50],
-    [0.50, 0.88, 50, 0.90, 11, 3.10],
+    [0.25, 0.08, 55, 0.80, 10, 0.00],
+    [0.78, 0.28, 30, 1.10, 6,  1.20],
+    [0.12, 0.72, 70, 0.65, 14, 2.50],
+    [0.82, 0.88, 22, 1.35, 4,  0.50],
   ];
 
   static final List<List<double>> _rightOrbData = [
-    [0.55, 0.12, 60, 0.88, 13, 1.80],
-    [0.85, 0.38, 30, 1.18, 8,  0.80],
-    [0.18, 0.60, 44, 0.62, 10, 3.00],
-    [0.65, 0.78, 70, 0.98, 15, 1.50],
-    [0.38, 0.90, 28, 1.42, 6,  2.20],
+    [0.60, 0.10, 48, 0.88, 11, 1.80],
+    [0.88, 0.35, 24, 1.18, 7,  0.80],
+    [0.15, 0.75, 36, 0.62, 9,  3.00],
+    [0.70, 0.90, 58, 0.98, 13, 1.50],
   ];
+
+  double get _anger {
+    switch (widget.category.key) {
+      case 'GOOD': return 0.0;
+      case 'SATISFACTORY': return 0.15;
+      case 'MODERATE': return 0.42;
+      case 'POOR': return 0.65;
+      case 'VERY_POOR': return 0.85;
+      default: return 1.0;
+    }
+  }
 
   @override
   void initState() {
@@ -1424,6 +1433,7 @@ class _SideOrbsState extends State<_SideOrbs>
 
     final pad = sideW * 0.12;
     final barW = sideW - pad * 2 - 36;
+    final anger = _anger;
 
     String fmtHour(int h) {
       if (h == 0) return '12a';
@@ -1449,7 +1459,7 @@ class _SideOrbsState extends State<_SideOrbs>
               left: sideW * o[0] - o[2] / 2,
               top: sz.height * o[1] + dy - o[2] / 2,
               size: o[2],
-              color: widget.category.bgDeepColor.withValues(alpha: 0.18),
+              color: widget.category.bgDeepColor.withValues(alpha: 0.14),
             );
           }),
 
@@ -1460,14 +1470,14 @@ class _SideOrbsState extends State<_SideOrbs>
                 textAlign: TextAlign.center,
                 style: AppTheme.baloo2(
                     (sideW * 0.40).clamp(28.0, 100.0),
-                    color: Colors.white.withValues(alpha: 0.05),
+                    color: Colors.white.withValues(alpha: 0.04),
                     weight: FontWeight.w900)),
           ),
 
-          // ── Left: Pollutant breakdown bars ────────────────────────────────
+          // ── Left: Pollutant bars ──────────────────────────────────────────
           if (widget.components != null && sideW >= 90)
             Positioned(
-              left: 0, width: sideW, top: sz.height * 0.18,
+              left: 0, width: sideW, top: sz.height * 0.14,
               child: Padding(
                 padding: EdgeInsets.symmetric(horizontal: pad),
                 child: Column(
@@ -1489,9 +1499,16 @@ class _SideOrbsState extends State<_SideOrbs>
               ),
             ),
 
+          // ── Left: Smog Baba character ─────────────────────────────────────
+          Positioned(
+            left: 0, width: sideW,
+            top: sz.height * (widget.components != null ? 0.50 : 0.30),
+            child: Center(child: _buildSmogBaba(sideW, t, anger)),
+          ),
+
           // ── Left: DELHI label ─────────────────────────────────────────────
           Positioned(
-            left: 0, width: sideW, bottom: 36,
+            left: 0, width: sideW, bottom: 32,
             child: Text('DELHI',
                 textAlign: TextAlign.center,
                 style: AppTheme.mono(9,
@@ -1508,7 +1525,7 @@ class _SideOrbsState extends State<_SideOrbs>
               left: dx + sideW * o[0] - o[2] / 2,
               top: sz.height * o[1] + dy - o[2] / 2,
               size: o[2],
-              color: widget.category.bgColor.withValues(alpha: 0.16),
+              color: widget.category.bgColor.withValues(alpha: 0.12),
             );
           }),
 
@@ -1519,14 +1536,14 @@ class _SideOrbsState extends State<_SideOrbs>
                 textAlign: TextAlign.center,
                 style: AppTheme.baloo2(
                     (sideW * 0.55).clamp(32.0, 130.0),
-                    color: Colors.white.withValues(alpha: 0.05),
+                    color: Colors.white.withValues(alpha: 0.04),
                     weight: FontWeight.w900)),
           ),
 
           // ── Right: Hourly forecast dots ───────────────────────────────────
           if (displayHours.isNotEmpty && sideW >= 90)
             Positioned(
-              left: sz.width - sideW, width: sideW, top: sz.height * 0.22,
+              left: sz.width - sideW, width: sideW, top: sz.height * 0.14,
               child: Padding(
                 padding: EdgeInsets.symmetric(horizontal: pad),
                 child: Column(
@@ -1542,30 +1559,28 @@ class _SideOrbsState extends State<_SideOrbs>
                       final cat = categoryForAqi(h.aqi);
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 6),
-                        child: Row(
-                          children: [
-                            SizedBox(
-                              width: 22,
-                              child: Text(fmtHour(h.hour),
-                                  style: AppTheme.mono(8,
-                                      color: Colors.white.withValues(alpha: 0.50),
-                                      weight: FontWeight.w600)),
-                            ),
-                            const SizedBox(width: 5),
-                            Container(
-                              width: 8, height: 8,
-                              decoration: BoxDecoration(
-                                color: cat.bgColor.withValues(alpha: 0.85),
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 5),
-                            Text('${h.aqi}',
+                        child: Row(children: [
+                          SizedBox(
+                            width: 22,
+                            child: Text(fmtHour(h.hour),
                                 style: AppTheme.mono(8,
-                                    color: Colors.white.withValues(alpha: 0.60),
+                                    color: Colors.white.withValues(alpha: 0.50),
                                     weight: FontWeight.w600)),
-                          ],
-                        ),
+                          ),
+                          const SizedBox(width: 5),
+                          Container(
+                            width: 8, height: 8,
+                            decoration: BoxDecoration(
+                              color: cat.bgColor.withValues(alpha: 0.85),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          Text('${h.aqi}',
+                              style: AppTheme.mono(8,
+                                  color: Colors.white.withValues(alpha: 0.60),
+                                  weight: FontWeight.w600)),
+                        ]),
                       );
                     }),
                   ],
@@ -1573,9 +1588,16 @@ class _SideOrbsState extends State<_SideOrbs>
               ),
             ),
 
+          // ── Right: Lungs Ji character ─────────────────────────────────────
+          Positioned(
+            left: sz.width - sideW, width: sideW,
+            top: sz.height * (displayHours.isNotEmpty ? 0.54 : 0.30),
+            child: Center(child: _buildLungsJi(sideW, t, anger)),
+          ),
+
           // ── Right: HAWA label ─────────────────────────────────────────────
           Positioned(
-            left: sz.width - sideW, width: sideW, bottom: 36,
+            left: sz.width - sideW, width: sideW, bottom: 32,
             child: Text('HAWA',
                 textAlign: TextAlign.center,
                 style: AppTheme.mono(9,
@@ -1587,6 +1609,396 @@ class _SideOrbsState extends State<_SideOrbs>
       },
     );
   }
+
+  // ── Smog Baba ─────────────────────────────────────────────────────────────
+  // Left character: cloud face that gets angrier as AQI worsens.
+  // GOOD → sleeping (ZZZ). SEVERE → screaming + !!!
+
+  Widget _buildSmogBaba(double sideW, double t, double anger) {
+    final bob = sin(t * 2 * pi) * 7.0;
+    final bodySize = (sideW * (0.42 + anger * 0.24)).clamp(44.0, 106.0);
+    final bodyColor = widget.category.bgColor;
+    final breatheScale = 1.0 +
+        sin(t * 2 * pi * (1.8 + anger * 2.0)) * (0.04 + anger * 0.04);
+
+    return Transform.translate(
+      offset: Offset(0, bob),
+      child: Transform.scale(
+        scale: breatheScale,
+        child: SizedBox(
+          width: bodySize * 1.9,
+          height: bodySize * 2.1,
+          child: Stack(
+            alignment: Alignment.bottomCenter,
+            clipBehavior: Clip.none,
+            children: [
+              // Smoke puffs (moderate+)
+              if (anger >= 0.40) ..._smokePuffs(t, bodySize, bodyColor, anger),
+
+              // Body blob
+              Container(
+                width: bodySize, height: bodySize * 0.96,
+                decoration: BoxDecoration(
+                  color: bodyColor.withValues(alpha: 0.42 + anger * 0.42),
+                  borderRadius: BorderRadius.circular(bodySize * 0.48),
+                  boxShadow: anger > 0.25 ? [
+                    BoxShadow(
+                      color: bodyColor.withValues(alpha: anger * 0.50),
+                      blurRadius: 6 + anger * 22,
+                      spreadRadius: anger * 6,
+                    ),
+                  ] : null,
+                ),
+              ),
+
+              // Angry brows (moderate+)
+              if (anger >= 0.40)
+                Positioned(
+                  bottom: bodySize * 0.57,
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    _brow(bodySize * 0.20, true, anger),
+                    SizedBox(width: bodySize * 0.22),
+                    _brow(bodySize * 0.20, false, anger),
+                  ]),
+                ),
+
+              // Eyes
+              Positioned(
+                bottom: bodySize * 0.44,
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  _eyeWidget(bodySize * 0.17,
+                      sin(t * 2 * pi * 1.7) * 3.5, anger),
+                  SizedBox(width: bodySize * 0.24),
+                  _eyeWidget(bodySize * 0.17,
+                      sin(t * 2 * pi * 1.7 + 0.6) * 3.5, anger),
+                ]),
+              ),
+
+              // Mouth
+              Positioned(
+                bottom: bodySize * 0.14,
+                child: _mouthWidget(bodySize * 0.42, anger),
+              ),
+
+              // ZZZ when GOOD
+              if (anger < 0.10) ...[
+                Positioned(
+                  right: bodySize * 0.08, bottom: bodySize * 0.88,
+                  child: Opacity(
+                    opacity: (sin(t * 2 * pi) * 0.5 + 0.5),
+                    child: Text('z', style: AppTheme.baloo2(
+                        bodySize * 0.22,
+                        color: Colors.white.withValues(alpha: 0.75),
+                        weight: FontWeight.w700)),
+                  ),
+                ),
+                Positioned(
+                  right: bodySize * -0.02, bottom: bodySize * 1.06,
+                  child: Opacity(
+                    opacity: (sin(t * 2 * pi - 1.2) * 0.5 + 0.5),
+                    child: Text('Z', style: AppTheme.baloo2(
+                        bodySize * 0.30,
+                        color: Colors.white.withValues(alpha: 0.60),
+                        weight: FontWeight.w700)),
+                  ),
+                ),
+              ],
+
+              // !!! when SEVERE
+              if (anger >= 0.95)
+                Positioned(
+                  bottom: bodySize * 1.02,
+                  child: Text('!!!', style: AppTheme.baloo2(
+                      bodySize * 0.28,
+                      color: Colors.red.withValues(alpha: 0.90),
+                      weight: FontWeight.w900)),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _smokePuffs(
+      double t, double bodySize, Color color, double anger) {
+    return List.generate(3, (i) {
+      final phase = (t + i / 3.0) % 1.0;
+      final riseY = phase * bodySize * 1.35;
+      final swayX = sin(phase * pi + i * 1.6) * bodySize * 0.22;
+      final puffSize =
+          bodySize * (0.13 + i * 0.06) * (1 - phase * 0.45);
+      return Positioned(
+        bottom: bodySize * 0.94 + riseY,
+        left: bodySize * (0.22 + i * 0.24) + swayX,
+        child: Opacity(
+          opacity: ((1 - phase) * anger * 0.62).clamp(0.0, 1.0),
+          child: Container(
+            width: puffSize, height: puffSize,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.55),
+              shape: BoxShape.circle,
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
+  Widget _eyeWidget(double size, double pupilX, double anger) {
+    if (anger >= 0.83) {
+      return SizedBox(
+        width: size, height: size,
+        child: Center(child: Text('✕', style: TextStyle(
+            color: Colors.white, fontSize: size * 0.88,
+            fontWeight: FontWeight.w900, height: 1.0))),
+      );
+    }
+    return Container(
+      width: size, height: size,
+      decoration: const BoxDecoration(
+          color: Colors.white, shape: BoxShape.circle),
+      child: Stack(children: [
+        Positioned(
+          left: (size / 2 - size * 0.25) +
+              pupilX.clamp(-size * 0.22, size * 0.22),
+          top: size * 0.22,
+          child: Container(
+            width: size * 0.50, height: size * 0.50,
+            decoration: BoxDecoration(
+              color: anger > 0.55
+                  ? const Color(0xFFBB1111)
+                  : const Color(0xFF1A1A2E),
+              shape: BoxShape.circle,
+            ),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _brow(double w, bool isLeft, double anger) {
+    return Transform.rotate(
+      angle: isLeft ? -(anger - 0.3) * 0.55 : (anger - 0.3) * 0.55,
+      child: Container(
+        width: w,
+        height: (w * 0.22).clamp(2.5, 8.0),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.88),
+          borderRadius: BorderRadius.circular(w * 0.12),
+        ),
+      ),
+    );
+  }
+
+  Widget _mouthWidget(double w, double anger) {
+    if (anger >= 0.78) {
+      return Container(
+        width: w * 0.50, height: w * 0.42,
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.75),
+          borderRadius: BorderRadius.circular(w * 0.22),
+        ),
+      );
+    }
+    final smiling = anger < 0.35;
+    return ClipRect(
+      child: Align(
+        alignment: smiling ? Alignment.topCenter : Alignment.bottomCenter,
+        heightFactor: 0.5,
+        child: Container(
+          width: w, height: w,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+                color: Colors.white.withValues(alpha: 0.90), width: 3),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Lungs Ji ──────────────────────────────────────────────────────────────
+  // Right character: two lungs with a face. Breathes, gets distressed.
+  // GOOD → pink + heartbeat. SEVERE → gray + shaking + X eyes + 💨 wheeze.
+
+  Widget _buildLungsJi(double sideW, double t, double anger) {
+    final breathSpeed = 1.4 + anger * 2.2;
+    final breathScale = 1.0 +
+        sin(t * 2 * pi * breathSpeed) * (0.06 + anger * 0.05);
+    final bob = sin(t * 2 * pi * 0.75 + 1.2) * 5.0;
+    final sz = (sideW * 0.40).clamp(40.0, 88.0);
+
+    final healthColor = Color.lerp(
+      const Color(0xFFFF9FB2),
+      const Color(0xFF9A9A9A),
+      anger,
+    )!;
+
+    return Transform.translate(
+      offset: Offset(0, bob),
+      child: Transform.scale(
+        scale: breathScale,
+        child: SizedBox(
+          width: sz * 2.7,
+          height: sz * 1.9,
+          child: Stack(
+            alignment: Alignment.center,
+            clipBehavior: Clip.none,
+            children: [
+              Positioned(
+                left: 0, top: sz * 0.24,
+                child: _lungShape(
+                    sz * 0.92, sz * 1.12, healthColor, anger, t, true),
+              ),
+              Positioned(
+                right: 0, top: sz * 0.24,
+                child: _lungShape(
+                    sz * 0.92, sz * 1.12, healthColor, anger, t, false),
+              ),
+              Positioned(
+                top: 0,
+                child: _lungFaceCircle(sz * 0.58, anger, t),
+              ),
+              if (anger >= 0.60) ..._wheezePuffs(t, sz, anger),
+              if (anger < 0.18)
+                Positioned(
+                  bottom: 0,
+                  child: Opacity(
+                    opacity: (sin(t * 2 * pi * 2.4) * 0.5 + 0.5),
+                    child: Text('♥', style: TextStyle(
+                        color: Colors.pink.shade300,
+                        fontSize: sz * 0.30)),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _lungShape(double w, double h, Color color,
+      double anger, double t, bool isLeft) {
+    final shakeX = anger > 0.78
+        ? sin(t * 2 * pi * 10) * 2.8 * anger
+        : 0.0;
+    return Transform.translate(
+      offset: Offset(isLeft ? -shakeX : shakeX, 0),
+      child: Container(
+        width: w, height: h,
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.58 + anger * 0.12),
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(isLeft ? w * 0.72 : w * 0.22),
+            topRight: Radius.circular(isLeft ? w * 0.22 : w * 0.72),
+            bottomLeft: Radius.circular(w * 0.40),
+            bottomRight: Radius.circular(w * 0.40),
+          ),
+          boxShadow: [
+            BoxShadow(color: color.withValues(alpha: 0.30),
+                blurRadius: 8, spreadRadius: 1),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _lungFaceCircle(double sz, double anger, double t) {
+    final eyeX = sin(t * 2 * pi * 1.1) * 2.2;
+    return Container(
+      width: sz, height: sz,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.92),
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.15),
+              blurRadius: 6),
+        ],
+      ),
+      child: Stack(alignment: Alignment.center, children: [
+        if (anger >= 0.38)
+          Positioned(
+            top: sz * 0.16,
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              _brow(sz * 0.18, true, anger),
+              SizedBox(width: sz * 0.16),
+              _brow(sz * 0.18, false, anger),
+            ]),
+          ),
+        Positioned(
+          top: anger >= 0.38 ? sz * 0.32 : sz * 0.26,
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            _smallEye(sz * 0.16, eyeX, anger),
+            SizedBox(width: sz * 0.14),
+            _smallEye(sz * 0.16, -eyeX, anger),
+          ]),
+        ),
+        if (anger > 0.32 && anger < 0.68)
+          Positioned(
+            right: sz * 0.10, top: sz * 0.18,
+            child: _sweatDrop(sz * 0.11),
+          ),
+        Positioned(
+          bottom: sz * 0.17,
+          child: _mouthWidget(sz * 0.44, anger),
+        ),
+      ]),
+    );
+  }
+
+  Widget _smallEye(double size, double eyeX, double anger) {
+    if (anger >= 0.83) {
+      return SizedBox(
+        width: size, height: size,
+        child: Center(child: Text('✕', style: TextStyle(
+            color: Colors.grey.shade600, fontSize: size * 0.85,
+            fontWeight: FontWeight.w900, height: 1.0))),
+      );
+    }
+    return Container(
+      width: size, height: size,
+      decoration: BoxDecoration(
+        color: anger > 0.55
+            ? Colors.grey.shade700
+            : const Color(0xFF1A1A2E),
+        shape: BoxShape.circle,
+      ),
+    );
+  }
+
+  Widget _sweatDrop(double size) {
+    return Container(
+      width: size, height: size * 1.55,
+      decoration: BoxDecoration(
+        color: Colors.lightBlue.withValues(alpha: 0.65),
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(size * 0.5),
+          topRight: Radius.circular(size * 0.5),
+          bottomLeft: Radius.circular(size),
+          bottomRight: Radius.circular(size),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _wheezePuffs(double t, double sz, double anger) {
+    return List.generate(3, (i) {
+      final phase = (t * 1.3 + i / 3.0) % 1.0;
+      return Positioned(
+        right: sz * (0.52 + i * 0.10) +
+            sin(t * 2 * pi * 2.2 + i) * sz * 0.10,
+        top: sz * 0.25 + (1 - phase) * sz * 0.55,
+        child: Opacity(
+          opacity: ((1 - phase) * anger * 0.75).clamp(0.0, 1.0),
+          child: Text('💨',
+              style: TextStyle(fontSize: sz * (0.14 + i * 0.04))),
+        ),
+      );
+    });
+  }
+
+  // ── Shared helpers ────────────────────────────────────────────────────────
 
   Widget _pollBar(String label, double value, double threshold, double maxW) {
     final ratio = (value / threshold).clamp(0.0, 3.0);
@@ -1603,43 +2015,40 @@ class _SideOrbsState extends State<_SideOrbs>
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 9),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 30,
-            child: Text(label,
-                style: AppTheme.mono(7,
-                    color: Colors.white.withValues(alpha: 0.52),
-                    weight: FontWeight.w600)),
-          ),
-          Expanded(
-            child: Stack(children: [
-              Container(
-                height: 5,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(3),
-                ),
-              ),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 900),
-                curve: Curves.easeOutCubic,
-                width: fillW,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.80),
-                  borderRadius: BorderRadius.circular(3),
-                ),
-              ),
-            ]),
-          ),
-          const SizedBox(width: 5),
-          Text(displayVal,
+      child: Row(children: [
+        SizedBox(
+          width: 30,
+          child: Text(label,
               style: AppTheme.mono(7,
-                  color: Colors.white.withValues(alpha: 0.55),
+                  color: Colors.white.withValues(alpha: 0.52),
                   weight: FontWeight.w600)),
-        ],
-      ),
+        ),
+        Expanded(
+          child: Stack(children: [
+            Container(
+              height: 5,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 900),
+              curve: Curves.easeOutCubic,
+              width: fillW, height: 5,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.80),
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+          ]),
+        ),
+        const SizedBox(width: 5),
+        Text(displayVal,
+            style: AppTheme.mono(7,
+                color: Colors.white.withValues(alpha: 0.55),
+                weight: FontWeight.w600)),
+      ]),
     );
   }
 
