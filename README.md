@@ -4,15 +4,15 @@
 
 A Flutter web app that fetches live PM2.5 data, converts it to India's CPCB AQI scale, and gives you an animated scene, personality type, city comparisons, and shareable story cards — so you always know what the hawa is like before stepping out.
 
-**Live →** [cipherabhi.com/bahar-jaaun](https://cipherabhi.com/bahar-jaaun)
+**Live →** [cipherabhi.com/baharjaaun](https://cipherabhi.com/baharjaaun/)
 
 ---
 
-## What This App Does
+## Screenshots
 
-| | |
-|---|---|
-| ![App Screenshot](screenshots/main.png) | ![Story Card](screenshots/story-card.png) |
+| Top of app | Verdicts & Share | Dilli vs Duniya | Desktop |
+|:---:|:---:|:---:|:---:|
+| ![Main](screenshots/main.png) | ![Verdict & Share](screenshots/verdict.png) | ![Cards](screenshots/cards.png) | ![Desktop](screenshots/desktop.png) |
 
 ---
 
@@ -24,10 +24,8 @@ A Flutter web app that fetches live PM2.5 data, converts it to India's CPCB AQI 
 - Converts to **India CPCB AQI (0–500)** — not OpenWeather's coarse 1–5 scale
 - Shows **PM2.5 µg/m³, temperature, wind speed, humidity** as stat pills
 - Visual **AQI gradient bar** with live position marker
-- **Cigarette equivalent** — "≈ 13.2 cigarettes/day worth of exposure"
+- **Cigarette equivalent** — "≈ 2.3 cigarettes/day worth of exposure"
 - **45-minute cache** — no duplicate API calls (SharedPreferences, keyed by lat/lon)
-
-![AQI Block](screenshots/aqi-block.png)
 
 ---
 
@@ -47,110 +45,107 @@ A Flutter web app that fetches live PM2.5 data, converts it to India's CPCB AQI 
 - **"Aaj ka air-rashifal 🔮"** — a fresh randomised Hinglish verdict every day
 - **🎲 Aur sunao** — tap for another verdict from the same category
 - **Activity tips** — what to do / avoid based on current AQI
-- **Villain of the day ☠️** — identifies the worst pollutant (PM2.5, NO₂, O₃ etc.) and explains it
-- **Health fact** — a rotating fact below every verdict
-
-![Verdict Card](screenshots/verdict.png)
+- **Villain of the day ☠️** — identifies the worst pollutant (PM2.5, NO₂, O₃ etc.)
+- **Health fact** — rotating fact shown below every verdict
 
 ---
 
 ### 🔥 Daily Streak & History
 
-- **Streak counter** — "🔥 n din" — tracks how many days in a row you've checked
-- **Streak milestones** — special label at 3, 7, 14, 30, 50, 100 days
-- **"X din bina saaf hawa"** — badge showing days since the last GOOD AQI
+- **Streak counter** — "🔥 n din" — tracks consecutive days checked
+- **Streak milestones** — special labels at 3, 7, 14, 30, 50, 100 days
+- **"X din bina saaf hawa"** — shows days since last GOOD AQI day
 - **7-day sparkline** — colour-coded bar chart of this week's AQI history
-
-![Streak and Sparkline](screenshots/streak-sparkline.png)
 
 ---
 
 ### 🔮 Tomorrow's Forecast
 
 - Fetches 5-day/3-hour forecast, averages tomorrow's PM2.5 → AQI
-- Shows **BETTER / WORSE / SIMILAR** arrow vs today
+- Shows **BETTER / WORSE / SIMILAR** trend vs today
 - Lists **safe hours today** — hourly colour-coded bar chart of remaining hours
 
-![Forecast](screenshots/forecast.png)
+---
+
+### 🧬 AQI Personality Type
+
+Tells you **"Kaun si personality hai teri?"** based on current AQI + streak:
+
+| Personality | When |
+|---|---|
+| Pure Soul ✨ | GOOD AQI + streak ≥ 7 days |
+| Naseeb Wala 🍀 | GOOD AQI, new streak |
+| Dilli Optimist 😌 | SATISFACTORY AQI |
+| Casual Breather 😷 | MODERATE AQI |
+| Veteran Masker 💪 | MODERATE AQI + streak ≥ 10 days |
+| Hardcore Delhiite 🏙️ | POOR AQI |
+| Pollution Veteran ☠️ | VERY POOR AQI |
+| Iron Lungs 🦾 | SEVERE AQI |
 
 ---
 
 ### 🌍 Dilli vs Duniya
 
 - Live AQI comparison: **Delhi vs Mumbai, London, New York, Singapore**
-- **WHO safe limit** (PM2.5 ≤ 5 µg/m³ ≈ AQI 8) shown as the baseline
-- Animated bar chart — fetched in parallel, no loading delay for main content
-
-![Dilli vs Duniya](screenshots/dilli-vs-duniya.png)
+- **WHO safe limit** (PM2.5 ≤ 5 µg/m³ ≈ AQI 8) as the baseline bar
+- Animated bar chart — fetched in parallel, doesn't block main content
 
 ---
 
 ### 🗺️ Delhi Neighbourhood Comparison
 
 - Live AQI for **CP, Dwarka, Rohini, Noida, Gurgaon** — fetched in parallel
-- Colour-coded chips showing which areas are better or worse than your location
-
----
-
-### 🧬 AQI Personality Type
-
-- Tells you **"Kaun si personality hai teri?"** based on current AQI + streak
-- 8 personality types: Pure Soul ✨ · Naseeb Wala 🍀 · Dilli Optimist 😌 · Casual Breather 😷 · Veteran Masker 💪 · Hardcore Delhiite 🏙️ · Pollution Veteran ☠️ · Iron Lungs 🦾
-
-![Personality Card](screenshots/personality.png)
+- Colour-coded chips by AQI category
 
 ---
 
 ### 👗 Kya Pehnu Aaj?
 
-- Outfit recommendation per AQI category: T-shirt → Scarf → Surgical mask → N95 → Hazmat → "Space suit chahiye bhai 🚀"
+Outfit recommendation per AQI level: T-shirt → Scarf → Surgical mask → N95 → Hazmat → "Space suit chahiye bhai 🚀"
 
 ---
 
 ### 📊 Is Mahine Ka Hisaab (Monthly Wrapped)
 
-- Tracks **worst AQI, best AQI, average AQI** for the current month
-- Shows **cigarette-equivalent exposure** for the month
-- Day count badges: Good days 🌿 / Moderate days / Poor+ days ☠️
-- Builds up over the month — appears once you have 2+ days of data
-
-![Monthly Wrapped](screenshots/wrapped.png)
+- Tracks **worst, best, and average AQI** for the current month
+- **Cigarette-equivalent exposure** for the month
+- Good days 🌿 / Moderate days / Poor+ days ☠️ count badges
+- Appears after 2+ days of data
 
 ---
 
-### 📸 Shareable Story Card
+### 📸 Story Card
 
 - Opens a **9:16 portrait card** designed for Instagram Stories and WhatsApp Status
-- Shows: app branding, date + city, big AQI number, category, verdict, URL
-- Screenshot → share directly — no downloads needed
+- Shows: app branding, date + city, AQI number, category, verdict, URL
+- Screenshot → share — no downloads needed
 - One-tap **WhatsApp share** from within the dialog
-
-![Story Card](screenshots/story-card-preview.png)
 
 ---
 
 ### 📤 Viral Share Features
 
-- **📋 Copy karo** — copies a formatted Hinglish share text to clipboard
-- **💬 WhatsApp** — opens WhatsApp with pre-filled message
-- **📨 Delhiite ko Bhejo** — sends a referral message to a Delhiite friend ("Yaar tu Delhi mein rehta hai na?")
+- **📋 Copy karo** — copies formatted Hinglish share text to clipboard
+- **💬 WhatsApp** — pre-filled share message
+- **📸 Story Card** — Instagram/WhatsApp Status 9:16 card
+- **📨 Delhiite ko** — referral message: "Yaar tu Delhi mein rehta hai na? 😷"
 - **Social proof counter** — "X Dilliwalon ne aaj check kiya" — grows daily
 
 ---
 
 ### 🖥️ Desktop Sidebar Characters
 
-On wide screens, two animated characters appear in the sidebars:
+On wide screens, two animated characters fill the sidebars:
 
-- **Left — Smog Baba 😤** (cloud face): sleeps (ZZZ) when GOOD, puffs smoke at MODERATE, screams (!!!) at SEVERE. Pollutant bars show PM2.5, PM10, NO₂, O₃, SO₂ levels.
-- **Right — Lungs Ji 🫁** (breathing lungs): pink + heartbeat when GOOD, grey + shaking + X-eyes at SEVERE. Hourly safe-time dots listed below.
+- **Left — Smog Baba 😤** — cloud face; sleeps (ZZZ) at GOOD, screams (!!!) at SEVERE. Pollutant bars show PM2.5, PM10, NO₂, O₃, SO₂.
+- **Right — Lungs Ji 🫁** — breathing lungs; pink + heartbeat at GOOD, shaking + X-eyes at SEVERE. Hourly safe-time dots listed below.
 
 ---
 
 ### 🎨 Interactive Preview
 
-- **6 colour dots** at the bottom — tap any AQI category to preview that air state (changes scene, mascot, cards, verdicts, characters)
-- **🌧️ Toggle baarish** — switch rain on/off, mascot and particles react
+- **6 colour dots** at bottom — tap any AQI category to preview that air state
+- **🌧️ Toggle baarish** — rain on/off, mascot and particles react
 - **🎉 Confetti** — rains down when AQI is GOOD (rare event, celebrate it!)
 
 ---
@@ -192,22 +187,22 @@ lib/
 ├── data/
 │   ├── verdicts.dart          # Hinglish verdicts, activity tips, health facts
 │   ├── outfit_tips.dart       # Outfit recommendation per AQI category
-│   └── personalities.dart     # AQI personality types (getPersonality)
+│   └── personalities.dart     # AQI personality types
 ├── models/
 │   └── aqi_category.dart      # AqiCategory model, pm25ToIndiaAqi(), CPCB breakpoints
 ├── screens/
 │   └── home_screen.dart       # Full app screen — all cards, scene, charts, dialogs
 ├── services/
 │   ├── aqi_service.dart       # OpenWeather fetch, forecast, nearby areas, world cities
-│   ├── history_service.dart   # 7-day AQI history + last GOOD day (SharedPreferences)
+│   ├── history_service.dart   # 7-day AQI history + last GOOD day
 │   ├── location_service.dart  # Geolocator with 8s timeout + Delhi fallback
 │   ├── stats_service.dart     # Monthly stats tracking + daily counter
 │   └── streak_service.dart    # Daily streak counter logic
 ├── theme/
-│   └── app_theme.dart         # Colors, Google Fonts helpers, darkInk, cream
+│   └── app_theme.dart         # Colors, Google Fonts helpers
 ├── widgets/
-│   ├── mascot.dart            # Animated character (bob, blink, sweat, cough, mask)
-│   ├── sky_particles.dart     # Smog particles + rain streaks (CustomPainter)
+│   ├── mascot.dart            # Animated character
+│   ├── sky_particles.dart     # Smog particles + rain streaks
 │   ├── side_cast.dart         # Auto-rickshaw, chai glass, pigeon
 │   └── app_footer.dart        # Footer with nav links
 └── main.dart
@@ -218,36 +213,12 @@ lib/
 ## Local Setup
 
 ```bash
-# Prerequisites: Flutter 3.x with web support
-flutter doctor
-
-# Clone and install
-git clone https://github.com/abhimanyu9608/baharjaaun.git
-cd baharjaaun
 flutter pub get
-
-# Run in Chrome
 flutter run -d chrome
-
-# Production build
 flutter build web --release --base-href /baharjaaun/
 ```
 
-The OpenWeather API key lives in `lib/services/aqi_service.dart`. Get a free key at [openweathermap.org](https://openweathermap.org/api).
-
----
-
-## Deployment
-
-Uses a two-repo GitHub Pages setup:
-- **`main`** branch — Flutter source
-- **`gh-pages`** branch — built `flutter build web` output
-
-Build and push:
-```bash
-flutter build web --release --base-href "/baharjaaun/"
-# copy build/web/* → gh-pages branch → git push
-```
+OpenWeather API key is in `lib/services/aqi_service.dart`. Free key at [openweathermap.org](https://openweathermap.org/api).
 
 ---
 
@@ -255,7 +226,7 @@ flutter build web --release --base-href "/baharjaaun/"
 
 - Air quality data: [OpenWeatherMap](https://openweathermap.org/) (updates hourly)
 - AQI standard: [CPCB India](https://cpcb.nic.in/)
-- Not medical advice. Don't rely on this alone for health decisions.
+- Not medical advice.
 
 ---
 
