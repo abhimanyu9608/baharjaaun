@@ -6,7 +6,7 @@ import '../models/aqi_category.dart';
 const String _kApiKey = '3e9b17867f04fd5281f2dde2c62eb5f7';
 const String _kBaseUrl = 'https://api.openweathermap.org/data/2.5';
 const int _kCacheMinutes = 45;
-const int _kForecastCacheMinutes = 180; // 3 hours
+const int _kForecastCacheMinutes = 180;
 
 class AqiComponents {
   final double pm25;
@@ -34,6 +34,8 @@ class AqiResult {
   final double pm25;
   final String city;
   final double? tempCelsius;
+  final double? windSpeed; // m/s
+  final int? humidity;     // %
   final bool fromCache;
   final AqiComponents? components;
 
@@ -43,21 +45,31 @@ class AqiResult {
     required this.pm25,
     required this.city,
     this.tempCelsius,
+    this.windSpeed,
+    this.humidity,
     this.fromCache = false,
     this.components,
   });
+}
+
+class HourlyForecast {
+  final int hour;  // 0–23 local time
+  final int aqi;
+  const HourlyForecast({required this.hour, required this.aqi});
 }
 
 class ForecastResult {
   final int tomorrowAqi;
   final AqiCategory tomorrowCategory;
   final String comparison; // 'BETTER', 'WORSE', 'SIMILAR'
+  final List<HourlyForecast> todayHours;
   final bool fromCache;
 
   const ForecastResult({
     required this.tomorrowAqi,
     required this.tomorrowCategory,
     required this.comparison,
+    this.todayHours = const [],
     this.fromCache = false,
   });
 }
@@ -88,7 +100,7 @@ class AqiService {
   static String _forecastCacheKey(double lat, double lon) {
     final rLat = lat.toStringAsFixed(2);
     final rLon = lon.toStringAsFixed(2);
-    return 'forecast_cache_${rLat}_$rLon';
+    return 'forecast_cache2_${rLat}_$rLon';
   }
 
   // ── Current AQI cache ─────────────────────────────────────────────────────
@@ -96,16 +108,13 @@ class AqiService {
   static Future<AqiResult?> _fromCache(double lat, double lon) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final key = _cacheKey(lat, lon);
-      final raw = prefs.getString(key);
+      final raw = prefs.getString(_cacheKey(lat, lon));
       if (raw == null) return null;
       final map = json.decode(raw) as Map<String, dynamic>;
       final ts = map['ts'] as int;
-      final age = DateTime.now().millisecondsSinceEpoch - ts;
-      if (age > _kCacheMinutes * 60 * 1000) return null;
+      if (DateTime.now().millisecondsSinceEpoch - ts > _kCacheMinutes * 60 * 1000) return null;
 
       final aqi = map['aqi'] as int;
-
       AqiComponents? components;
       if (map['comp'] != null) {
         final c = map['comp'] as Map<String, dynamic>;
@@ -126,6 +135,8 @@ class AqiService {
         pm25: (map['pm25'] as num).toDouble(),
         city: map['city'] as String,
         tempCelsius: map['temp'] != null ? (map['temp'] as num).toDouble() : null,
+        windSpeed: map['wind'] != null ? (map['wind'] as num).toDouble() : null,
+        humidity: map['hum'] as int?,
         fromCache: true,
         components: components,
       );
@@ -137,13 +148,14 @@ class AqiService {
   static Future<void> _toCache(double lat, double lon, AqiResult r) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final key = _cacheKey(lat, lon);
       final map = <String, dynamic>{
         'ts': DateTime.now().millisecondsSinceEpoch,
         'aqi': r.aqi,
         'pm25': r.pm25,
         'city': r.city,
         if (r.tempCelsius != null) 'temp': r.tempCelsius,
+        if (r.windSpeed != null) 'wind': r.windSpeed,
+        if (r.humidity != null) 'hum': r.humidity,
         if (r.components != null) 'comp': {
           'pm25': r.components!.pm25,
           'pm10': r.components!.pm10,
@@ -154,7 +166,7 @@ class AqiService {
           'nh3': r.components!.nh3,
         },
       };
-      await prefs.setString(key, json.encode(map));
+      await prefs.setString(_cacheKey(lat, lon), json.encode(map));
     } catch (_) {}
   }
 
@@ -162,10 +174,8 @@ class AqiService {
     final cached = await _fromCache(lat, lon);
     if (cached != null) return cached;
 
-    final airUri = Uri.parse(
-        '$_kBaseUrl/air_pollution?lat=$lat&lon=$lon&appid=$_kApiKey');
-    final weatherUri = Uri.parse(
-        '$_kBaseUrl/weather?lat=$lat&lon=$lon&units=metric&appid=$_kApiKey');
+    final airUri = Uri.parse('$_kBaseUrl/air_pollution?lat=$lat&lon=$lon&appid=$_kApiKey');
+    final weatherUri = Uri.parse('$_kBaseUrl/weather?lat=$lat&lon=$lon&units=metric&appid=$_kApiKey');
 
     final responses = await Future.wait([
       http.get(airUri).timeout(const Duration(seconds: 10)),
@@ -175,9 +185,7 @@ class AqiService {
     final airRes = responses[0];
     final weatherRes = responses[1];
 
-    if (airRes.statusCode != 200) {
-      throw Exception('Air pollution API error: ${airRes.statusCode}');
-    }
+    if (airRes.statusCode != 200) throw Exception('Air pollution API error: ${airRes.statusCode}');
 
     final airData = json.decode(airRes.body) as Map<String, dynamic>;
     final comp = (airData['list'] as List)[0]['components'] as Map<String, dynamic>;
@@ -196,12 +204,17 @@ class AqiService {
 
     String city = 'Your area';
     double? temp;
+    double? windSpeed;
+    int? humidity;
 
     if (weatherRes.statusCode == 200) {
       final wData = json.decode(weatherRes.body) as Map<String, dynamic>;
       city = wData['name'] as String? ?? 'Your area';
       final main = wData['main'] as Map<String, dynamic>?;
       temp = main != null ? (main['temp'] as num?)?.toDouble() : null;
+      humidity = main != null ? (main['humidity'] as int?) : null;
+      final wind = wData['wind'] as Map<String, dynamic>?;
+      windSpeed = wind != null ? (wind['speed'] as num?)?.toDouble() : null;
     }
 
     final result = AqiResult(
@@ -210,6 +223,8 @@ class AqiService {
       pm25: pm25,
       city: city,
       tempCelsius: temp,
+      windSpeed: windSpeed,
+      humidity: humidity,
       components: components,
     );
 
@@ -217,7 +232,7 @@ class AqiService {
     return result;
   }
 
-  // ── Forecast (3-hour cache, tomorrow's predicted AQI) ────────────────────
+  // ── Forecast (3-hr cache, tomorrow's AQI + today's remaining hours) ───────
 
   static Future<ForecastResult?> fetchForecast(
       double lat, double lon, int todayAqi) async {
@@ -225,17 +240,16 @@ class AqiService {
     if (cached != null) return cached;
 
     try {
-      final uri = Uri.parse(
-          '$_kBaseUrl/air_pollution/forecast?lat=$lat&lon=$lon&appid=$_kApiKey');
+      final uri = Uri.parse('$_kBaseUrl/air_pollution/forecast?lat=$lat&lon=$lon&appid=$_kApiKey');
       final res = await http.get(uri).timeout(const Duration(seconds: 10));
       if (res.statusCode != 200) return null;
 
       final data = json.decode(res.body) as Map<String, dynamic>;
       final list = data['list'] as List;
+      final now = DateTime.now();
+      final tomorrow = now.add(const Duration(days: 1));
 
-      // Filter tomorrow's entries using device local time
-      final tomorrow = DateTime.now().add(const Duration(days: 1));
-
+      // Tomorrow's entries → average AQI
       final tomorrowEntries = list.where((e) {
         final dt = DateTime.fromMillisecondsSinceEpoch((e['dt'] as int) * 1000);
         return dt.day == tomorrow.day && dt.month == tomorrow.month;
@@ -250,14 +264,27 @@ class AqiService {
 
       final tomorrowAqi = pm25ToIndiaAqi(avgPm25);
       final tomorrowCat = categoryForAqi(tomorrowAqi);
-
       final diff = tomorrowAqi - todayAqi;
       final comparison = diff > 30 ? 'WORSE' : diff < -30 ? 'BETTER' : 'SIMILAR';
+
+      // Today's remaining hours (current + future hours today)
+      final todayHours = list
+          .where((e) {
+            final dt = DateTime.fromMillisecondsSinceEpoch((e['dt'] as int) * 1000);
+            return dt.day == now.day && dt.month == now.month && dt.hour >= now.hour;
+          })
+          .map((e) {
+            final dt = DateTime.fromMillisecondsSinceEpoch((e['dt'] as int) * 1000);
+            final pm = (e['components']['pm2_5'] as num).toDouble();
+            return HourlyForecast(hour: dt.hour, aqi: pm25ToIndiaAqi(pm));
+          })
+          .toList();
 
       final result = ForecastResult(
         tomorrowAqi: tomorrowAqi,
         tomorrowCategory: tomorrowCat,
         comparison: comparison,
+        todayHours: todayHours,
       );
 
       await _forecastToCache(lat, lon, result);
@@ -267,23 +294,26 @@ class AqiService {
     }
   }
 
-  static Future<ForecastResult?> _forecastFromCache(
-      double lat, double lon) async {
+  static Future<ForecastResult?> _forecastFromCache(double lat, double lon) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final key = _forecastCacheKey(lat, lon);
-      final raw = prefs.getString(key);
+      final raw = prefs.getString(_forecastCacheKey(lat, lon));
       if (raw == null) return null;
       final map = json.decode(raw) as Map<String, dynamic>;
       final ts = map['ts'] as int;
-      final age = DateTime.now().millisecondsSinceEpoch - ts;
-      if (age > _kForecastCacheMinutes * 60 * 1000) return null;
+      if (DateTime.now().millisecondsSinceEpoch - ts > _kForecastCacheMinutes * 60 * 1000) return null;
 
       final tomorrowAqi = map['tomorrowAqi'] as int;
+      final hoursRaw = map['hours'] as List? ?? [];
+      final todayHours = hoursRaw
+          .map((e) => HourlyForecast(hour: e['h'] as int, aqi: e['a'] as int))
+          .toList();
+
       return ForecastResult(
         tomorrowAqi: tomorrowAqi,
         tomorrowCategory: categoryForAqi(tomorrowAqi),
         comparison: map['comparison'] as String,
+        todayHours: todayHours,
         fromCache: true,
       );
     } catch (_) {
@@ -291,17 +321,16 @@ class AqiService {
     }
   }
 
-  static Future<void> _forecastToCache(
-      double lat, double lon, ForecastResult r) async {
+  static Future<void> _forecastToCache(double lat, double lon, ForecastResult r) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final key = _forecastCacheKey(lat, lon);
       await prefs.setString(
-        key,
+        _forecastCacheKey(lat, lon),
         json.encode({
           'ts': DateTime.now().millisecondsSinceEpoch,
           'tomorrowAqi': r.tomorrowAqi,
           'comparison': r.comparison,
+          'hours': r.todayHours.map((h) => {'h': h.hour, 'a': h.aqi}).toList(),
         }),
       );
     } catch (_) {}

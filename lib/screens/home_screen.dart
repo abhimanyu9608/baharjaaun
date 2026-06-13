@@ -190,7 +190,14 @@ class _HomeScreenState extends State<HomeScreen>
                   : _error != null && _result == null
                       ? _buildError()
                       : _buildContent(),
-              IgnorePointer(child: _SideOrbs(category: _cat, aqi: _aqi)),
+              IgnorePointer(child: _SideOrbs(
+                category: _cat,
+                aqi: _aqi,
+                components: _previewIndex == null ? _result?.components : null,
+                todayHours: _previewIndex == null
+                    ? (_forecast?.todayHours ?? const [])
+                    : const [],
+              )),
             ],
           ),
         ),
@@ -301,6 +308,12 @@ class _HomeScreenState extends State<HomeScreen>
                           if (_forecast != null && _previewIndex == null) ...[
                             const SizedBox(height: 12),
                             _buildForecastCard(),
+                          ],
+                          if (_forecast != null &&
+                              (_forecast?.todayHours.length ?? 0) >= 3 &&
+                              _previewIndex == null) ...[
+                            const SizedBox(height: 12),
+                            _buildSafeHoursCard(),
                           ],
                           const SizedBox(height: 14),
                           _buildButtons(),
@@ -489,20 +502,21 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         ),
 
-        // PM2.5 + temp row (live data only)
+        // Stats pills row (live data only)
         if (showLive) ...[
           const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 8,
+            runSpacing: 6,
             children: [
-              _StatPill(
-                  label: 'PM2.5',
-                  value: '${_result!.pm25.toStringAsFixed(1)} µg/m³'),
-              const SizedBox(width: 8),
+              _StatPill(label: 'PM2.5', value: '${_result!.pm25.toStringAsFixed(1)} µg/m³'),
               if (_result!.tempCelsius != null)
-                _StatPill(
-                    label: 'TEMP',
-                    value: '${_result!.tempCelsius!.toStringAsFixed(0)}°C'),
+                _StatPill(label: 'TEMP', value: '${_result!.tempCelsius!.toStringAsFixed(0)}°C'),
+              if (_result!.windSpeed != null)
+                _StatPill(label: '💨', value: '${(_result!.windSpeed! * 3.6).toStringAsFixed(0)} km/h'),
+              if (_result!.humidity != null)
+                _StatPill(label: '💧', value: '${_result!.humidity}%'),
             ],
           ),
         ],
@@ -510,6 +524,19 @@ class _HomeScreenState extends State<HomeScreen>
         // Visual AQI bar
         const SizedBox(height: 14),
         _AqiBar(aqi: _aqi),
+
+        // Cigarette equivalent (only when meaningfully elevated)
+        if (showLive && _result!.pm25 > 22) ...[
+          const SizedBox(height: 8),
+          Text(
+            '🚬 ≈ ${(_result!.pm25 / 22).toStringAsFixed(1)} cigarettes/day worth of exposure',
+            textAlign: TextAlign.center,
+            style: AppTheme.mono(9,
+                    color: Colors.white.withValues(alpha: 0.55),
+                    weight: FontWeight.w500)
+                .copyWith(letterSpacing: 0.3),
+          ),
+        ],
       ],
     );
   }
@@ -706,6 +733,132 @@ class _HomeScreenState extends State<HomeScreen>
             _AqiBar(aqi: fc.tomorrowAqi),
           ],
         ),
+      ),
+    );
+  }
+
+  // ── safe hours today ──────────────────────────────────────────────────────
+
+  Widget _buildSafeHoursCard() {
+    final hours = _forecast!.todayHours;
+    final sorted = List.of(hours)..sort((a, b) => a.aqi.compareTo(b.aqi));
+    final bestHour = sorted.first;
+    final bestCat = categoryForAqi(bestHour.aqi);
+
+    String fmt(int h) {
+      if (h == 0) return '12am';
+      if (h < 12) return '${h}am';
+      if (h == 12) return '12pm';
+      return '${h - 12}pm';
+    }
+
+    // Show every other hour if more than 10 entries
+    final display = hours.length > 10
+        ? hours.where((h) => h.hour % 2 == 0).toList()
+        : hours;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+      decoration: BoxDecoration(
+        color: AppTheme.cream,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: const [
+          BoxShadow(color: Color(0x1F000000), offset: Offset(0, 8), blurRadius: 0),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'AAJ KA SAFE TIME',
+                style: AppTheme.mono(10,
+                        color: AppTheme.darkInk.withValues(alpha: 0.5),
+                        weight: FontWeight.w600)
+                    .copyWith(letterSpacing: 2),
+              ),
+              const SizedBox(width: 6),
+              const Text('⏰', style: TextStyle(fontSize: 13)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          RichText(
+            text: TextSpan(
+              children: [
+                TextSpan(
+                  text: 'Best: ',
+                  style: AppTheme.fredoka(14,
+                      color: AppTheme.darkInk.withValues(alpha: 0.6)),
+                ),
+                TextSpan(
+                  text: fmt(bestHour.hour),
+                  style: AppTheme.baloo2(16,
+                      color: bestCat.bgDeepColor, weight: FontWeight.w800),
+                ),
+                TextSpan(
+                  text: '  AQI ${bestHour.aqi}',
+                  style: AppTheme.mono(11,
+                      color: AppTheme.darkInk.withValues(alpha: 0.45)),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          // Hourly colour bars
+          SizedBox(
+            height: 48,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: display.map((h) {
+                final cat = categoryForAqi(h.aqi);
+                final barH = ((h.aqi.clamp(0, 500) / 500) * 28 + 4).toDouble();
+                final isBest = h.hour == bestHour.hour;
+                return Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 1.5),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        if (isBest)
+                          Container(
+                            width: 4,
+                            height: 4,
+                            decoration: const BoxDecoration(
+                              color: AppTheme.darkInk,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        const SizedBox(height: 2),
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 600),
+                          height: barH,
+                          decoration: BoxDecoration(
+                            color: isBest
+                                ? cat.bgDeepColor
+                                : cat.bgColor.withValues(alpha: 0.7),
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          fmt(h.hour),
+                          style: AppTheme.mono(6,
+                              color: isBest
+                                  ? AppTheme.darkInk
+                                  : AppTheme.darkInk.withValues(alpha: 0.4),
+                              weight: isBest
+                                  ? FontWeight.w700
+                                  : FontWeight.w400),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1218,7 +1371,15 @@ class _CloudPainter extends CustomPainter {
 class _SideOrbs extends StatefulWidget {
   final AqiCategory category;
   final int aqi;
-  const _SideOrbs({required this.category, required this.aqi});
+  final AqiComponents? components;
+  final List<HourlyForecast> todayHours;
+
+  const _SideOrbs({
+    required this.category,
+    required this.aqi,
+    this.components,
+    this.todayHours = const [],
+  });
 
   @override
   State<_SideOrbs> createState() => _SideOrbsState();
@@ -1228,21 +1389,20 @@ class _SideOrbsState extends State<_SideOrbs>
     with SingleTickerProviderStateMixin {
   late AnimationController _ctrl;
 
-  // [left_frac, top_frac, size, speed, amplitude, phase]
   static final List<List<double>> _leftOrbData = [
-    [0.30, 0.10, 88, 0.80, 12, 0.00],
-    [0.72, 0.27, 40, 1.10, 7,  1.20],
-    [0.18, 0.50, 108, 0.65, 16, 2.50],
-    [0.78, 0.70, 30, 1.35, 5,  0.50],
-    [0.45, 0.85, 62, 0.90, 11, 3.10],
+    [0.25, 0.08, 70, 0.80, 12, 0.00],
+    [0.75, 0.30, 36, 1.10, 7,  1.20],
+    [0.15, 0.55, 90, 0.65, 16, 2.50],
+    [0.80, 0.72, 28, 1.35, 5,  0.50],
+    [0.50, 0.88, 50, 0.90, 11, 3.10],
   ];
 
   static final List<List<double>> _rightOrbData = [
-    [0.55, 0.15, 72, 0.88, 13, 1.80],
-    [0.82, 0.36, 36, 1.18, 8,  0.80],
-    [0.20, 0.58, 52, 0.62, 10, 3.00],
-    [0.60, 0.76, 84, 0.98, 15, 1.50],
-    [0.35, 0.91, 34, 1.42, 6,  2.20],
+    [0.55, 0.12, 60, 0.88, 13, 1.80],
+    [0.85, 0.38, 30, 1.18, 8,  0.80],
+    [0.18, 0.60, 44, 0.62, 10, 3.00],
+    [0.65, 0.78, 70, 0.98, 15, 1.50],
+    [0.38, 0.90, 28, 1.42, 6,  2.20],
   ];
 
   @override
@@ -1262,62 +1422,85 @@ class _SideOrbsState extends State<_SideOrbs>
     final sideW = ((sz.width - _kMaxWidth) / 2).clamp(0.0, 500.0);
     if (sideW < 60) return const SizedBox.shrink();
 
+    final pad = sideW * 0.12;
+    final barW = sideW - pad * 2 - 36;
+
+    String fmtHour(int h) {
+      if (h == 0) return '12a';
+      if (h < 12) return '${h}a';
+      if (h == 12) return '12p';
+      return '${h - 12}p';
+    }
+
+    final displayHours = widget.todayHours.length > 8
+        ? widget.todayHours.where((h) => h.hour % 2 == 0).toList()
+        : widget.todayHours;
+
     return AnimatedBuilder(
       animation: _ctrl,
       builder: (ctx2, ch2) {
         final t = _ctrl.value;
         return Stack(children: [
-          // Left: "AQI" watermark
-          Positioned(
-            left: 0, width: sideW, top: sz.height * 0.05,
-            child: Text('AQI',
-                textAlign: TextAlign.center,
-                style: AppTheme.baloo2(
-                    (sideW * 0.45).clamp(32.0, 120.0),
-                    color: Colors.white.withValues(alpha: 0.07),
-                    weight: FontWeight.w900)),
-          ),
-          // Left: "DELHI" label
-          Positioned(
-            left: 0, width: sideW, bottom: 40,
-            child: Text('DELHI',
-                textAlign: TextAlign.center,
-                style: AppTheme.mono(10,
-                    color: Colors.white.withValues(alpha: 0.20),
-                    weight: FontWeight.w700)
-                    .copyWith(letterSpacing: 4)),
-          ),
-          // Left orbs
+
+          // ── Left background orbs ──────────────────────────────────────────
           ..._leftOrbData.map((o) {
             final dy = sin(t * 2 * pi * o[3] + o[5]) * o[4];
             return _orb(
               left: sideW * o[0] - o[2] / 2,
               top: sz.height * o[1] + dy - o[2] / 2,
               size: o[2],
-              color: widget.category.bgDeepColor.withValues(alpha: 0.22),
+              color: widget.category.bgDeepColor.withValues(alpha: 0.18),
             );
           }),
-          // Right: AQI number watermark
+
+          // ── Left: "AQI" faint watermark ──────────────────────────────────
           Positioned(
-            left: sz.width - sideW, width: sideW, top: sz.height * 0.04,
-            child: Text('${widget.aqi}',
+            left: 0, width: sideW, top: sz.height * 0.03,
+            child: Text('AQI',
                 textAlign: TextAlign.center,
                 style: AppTheme.baloo2(
-                    (sideW * 0.60).clamp(36.0, 140.0),
-                    color: Colors.white.withValues(alpha: 0.06),
+                    (sideW * 0.40).clamp(28.0, 100.0),
+                    color: Colors.white.withValues(alpha: 0.05),
                     weight: FontWeight.w900)),
           ),
-          // Right: "HAWA" label
+
+          // ── Left: Pollutant breakdown bars ────────────────────────────────
+          if (widget.components != null && sideW >= 90)
+            Positioned(
+              left: 0, width: sideW, top: sz.height * 0.18,
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: pad),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('POLLUTANTS',
+                        style: AppTheme.mono(7,
+                            color: Colors.white.withValues(alpha: 0.35),
+                            weight: FontWeight.w700)
+                            .copyWith(letterSpacing: 2)),
+                    const SizedBox(height: 10),
+                    _pollBar('PM2.5', widget.components!.pm25, 60, barW),
+                    _pollBar('PM10', widget.components!.pm10, 100, barW),
+                    _pollBar('NO₂', widget.components!.no2, 80, barW),
+                    _pollBar('O₃', widget.components!.o3, 100, barW),
+                    _pollBar('SO₂', widget.components!.so2, 80, barW),
+                  ],
+                ),
+              ),
+            ),
+
+          // ── Left: DELHI label ─────────────────────────────────────────────
           Positioned(
-            left: sz.width - sideW, width: sideW, bottom: 40,
-            child: Text('HAWA',
+            left: 0, width: sideW, bottom: 36,
+            child: Text('DELHI',
                 textAlign: TextAlign.center,
-                style: AppTheme.mono(10,
-                    color: Colors.white.withValues(alpha: 0.20),
+                style: AppTheme.mono(9,
+                    color: Colors.white.withValues(alpha: 0.18),
                     weight: FontWeight.w700)
                     .copyWith(letterSpacing: 4)),
           ),
-          // Right orbs
+
+          // ── Right background orbs ─────────────────────────────────────────
           ..._rightOrbData.map((o) {
             final dx = sz.width - sideW;
             final dy = sin(t * 2 * pi * o[3] + o[5]) * o[4];
@@ -1325,20 +1508,143 @@ class _SideOrbsState extends State<_SideOrbs>
               left: dx + sideW * o[0] - o[2] / 2,
               top: sz.height * o[1] + dy - o[2] / 2,
               size: o[2],
-              color: widget.category.bgColor.withValues(alpha: 0.18),
+              color: widget.category.bgColor.withValues(alpha: 0.16),
             );
           }),
+
+          // ── Right: AQI number watermark ───────────────────────────────────
+          Positioned(
+            left: sz.width - sideW, width: sideW, top: sz.height * 0.03,
+            child: Text('${widget.aqi}',
+                textAlign: TextAlign.center,
+                style: AppTheme.baloo2(
+                    (sideW * 0.55).clamp(32.0, 130.0),
+                    color: Colors.white.withValues(alpha: 0.05),
+                    weight: FontWeight.w900)),
+          ),
+
+          // ── Right: Hourly forecast dots ───────────────────────────────────
+          if (displayHours.isNotEmpty && sideW >= 90)
+            Positioned(
+              left: sz.width - sideW, width: sideW, top: sz.height * 0.22,
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: pad),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('SAFE HOURS',
+                        style: AppTheme.mono(7,
+                            color: Colors.white.withValues(alpha: 0.35),
+                            weight: FontWeight.w700)
+                            .copyWith(letterSpacing: 2)),
+                    const SizedBox(height: 10),
+                    ...displayHours.take(8).map((h) {
+                      final cat = categoryForAqi(h.aqi);
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 22,
+                              child: Text(fmtHour(h.hour),
+                                  style: AppTheme.mono(8,
+                                      color: Colors.white.withValues(alpha: 0.50),
+                                      weight: FontWeight.w600)),
+                            ),
+                            const SizedBox(width: 5),
+                            Container(
+                              width: 8, height: 8,
+                              decoration: BoxDecoration(
+                                color: cat.bgColor.withValues(alpha: 0.85),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                            Text('${h.aqi}',
+                                style: AppTheme.mono(8,
+                                    color: Colors.white.withValues(alpha: 0.60),
+                                    weight: FontWeight.w600)),
+                          ],
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            ),
+
+          // ── Right: HAWA label ─────────────────────────────────────────────
+          Positioned(
+            left: sz.width - sideW, width: sideW, bottom: 36,
+            child: Text('HAWA',
+                textAlign: TextAlign.center,
+                style: AppTheme.mono(9,
+                    color: Colors.white.withValues(alpha: 0.18),
+                    weight: FontWeight.w700)
+                    .copyWith(letterSpacing: 4)),
+          ),
         ]);
       },
     );
   }
 
-  Widget _orb({
-    required double left,
-    required double top,
-    required double size,
-    required Color color,
-  }) {
+  Widget _pollBar(String label, double value, double threshold, double maxW) {
+    final ratio = (value / threshold).clamp(0.0, 3.0);
+    final fillW = ((ratio / 3.0) * maxW).clamp(3.0, maxW);
+    final color = ratio < 1.0
+        ? const Color(0xFF46C07A)
+        : ratio < 2.0
+            ? const Color(0xFFE8C23A)
+            : const Color(0xFFD65A32);
+
+    final displayVal = value >= 1000
+        ? '${(value / 1000).toStringAsFixed(1)}k'
+        : value.toStringAsFixed(0);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 30,
+            child: Text(label,
+                style: AppTheme.mono(7,
+                    color: Colors.white.withValues(alpha: 0.52),
+                    weight: FontWeight.w600)),
+          ),
+          Expanded(
+            child: Stack(children: [
+              Container(
+                height: 5,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 900),
+                curve: Curves.easeOutCubic,
+                width: fillW,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.80),
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+            ]),
+          ),
+          const SizedBox(width: 5),
+          Text(displayVal,
+              style: AppTheme.mono(7,
+                  color: Colors.white.withValues(alpha: 0.55),
+                  weight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+
+  Widget _orb({required double left, required double top,
+      required double size, required Color color}) {
     return Positioned(
       left: left, top: top,
       child: AnimatedContainer(
