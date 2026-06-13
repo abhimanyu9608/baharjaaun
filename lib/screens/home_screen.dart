@@ -10,6 +10,8 @@ import '../services/aqi_service.dart';
 import '../services/location_service.dart';
 import '../services/streak_service.dart';
 import '../services/history_service.dart';
+import '../services/stats_service.dart';
+import '../data/personalities.dart';
 import '../theme/app_theme.dart';
 import '../widgets/sky_particles.dart';
 import '../widgets/mascot.dart';
@@ -53,6 +55,8 @@ class _HomeScreenState extends State<HomeScreen>
   List<int?> _weekHistory = [];
   int _daysSinceGood = -1;
   List<AreaAqi> _nearbyAreas = [];
+  List<WorldCityAqi> _worldCities = [];
+  MonthlyStats? _monthlyStats;
   bool _shareToast = false;
 
   // ── derived display values ─────────────────────────────────────────────────
@@ -125,6 +129,7 @@ class _HomeScreenState extends State<HomeScreen>
       _loadForecast(loc.lat, loc.lon, result.aqi);
       _loadHistoryAndExtras(result.aqi, result.category.key);
       _loadNearbyAreas();
+      _loadWorldCities();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -146,12 +151,15 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _loadHistoryAndExtras(int aqi, String catKey) async {
     await HistoryService.recordAqi(aqi, catKey);
+    await StatsService.recordDay(aqi, catKey);
     final history = await HistoryService.getLast7Days();
     final days = await HistoryService.daysSinceGood();
+    final stats = await StatsService.getMonthlyStats();
     if (mounted) {
       setState(() {
         _weekHistory = history;
         _daysSinceGood = days;
+        _monthlyStats = stats;
       });
     }
   }
@@ -159,6 +167,35 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _loadNearbyAreas() async {
     final areas = await AqiService.fetchNearbyAreas();
     if (mounted && areas.isNotEmpty) setState(() => _nearbyAreas = areas);
+  }
+
+  Future<void> _loadWorldCities() async {
+    final cities = await AqiService.fetchWorldCities();
+    if (mounted && cities.isNotEmpty) setState(() => _worldCities = cities);
+  }
+
+  Future<void> _sendToDelhiite() async {
+    const msg =
+        'Yaar tu Delhi mein rehta hai na? 😷\nAaj ka AQI check kar — bahar jaana safe hai ya nahi:\n';
+    final wa = Uri.parse(
+        'https://wa.me/?text=${Uri.encodeComponent(msg + _kSiteUrl)}');
+    if (await canLaunchUrl(wa)) {
+      await launchUrl(wa, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  void _showStoryDialog() {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.92),
+      builder: (ctx) => _StoryDialog(
+        aqi: _aqi,
+        cat: _cat,
+        verdict: _verdict,
+        city: _city,
+        onWhatsApp: _whatsappShare,
+      ),
+    );
   }
 
   void _applyPreview(int i) {
@@ -372,6 +409,10 @@ class _HomeScreenState extends State<HomeScreen>
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           _buildAqiBlock(),
+                          if (_previewIndex == null) ...[
+                            const SizedBox(height: 14),
+                            _buildPersonalityCard(),
+                          ],
                           const SizedBox(height: 18),
                           _buildVerdictCard(),
                           const SizedBox(height: 12),
@@ -390,12 +431,16 @@ class _HomeScreenState extends State<HomeScreen>
                             const SizedBox(height: 12),
                             _buildSafeHoursCard(),
                           ],
-                          // ── new feature cards ───────────────────────────
+                          // ── virality cards ─────────────────────────────
                           if (_previewIndex == null) ...[
                             const SizedBox(height: 12),
                             _buildShareRow(),
+                            const SizedBox(height: 10),
+                            _buildViralRow(),
                             const SizedBox(height: 12),
                             _buildOutfitCard(),
+                            const SizedBox(height: 12),
+                            _buildDilliVsDuniyaCard(),
                           ],
                           if (_weekHistory.any((v) => v != null)) ...[
                             const SizedBox(height: 12),
@@ -404,6 +449,12 @@ class _HomeScreenState extends State<HomeScreen>
                           if (_nearbyAreas.isNotEmpty) ...[
                             const SizedBox(height: 12),
                             _buildNeighborhoodCard(),
+                          ],
+                          if (_monthlyStats != null &&
+                              (_monthlyStats?.hasData ?? false) &&
+                              _previewIndex == null) ...[
+                            const SizedBox(height: 12),
+                            _buildWrappedCard(),
                           ],
                           const SizedBox(height: 14),
                           _buildButtons(),
@@ -1181,6 +1232,398 @@ class _HomeScreenState extends State<HomeScreen>
               );
             }).toList(),
           ),
+        ],
+      ),
+    );
+  }
+
+  // ── personality card ──────────────────────────────────────────────────────
+
+  Widget _buildPersonalityCard() {
+    final p = getPersonality(_cat.key, _streakCount);
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 400),
+      child: Container(
+        key: ValueKey(_cat.key),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.20),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+              color: Colors.white.withValues(alpha: 0.22), width: 1),
+        ),
+        child: Row(
+          children: [
+            Text(p.emoji, style: const TextStyle(fontSize: 38)),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'TERI HAWA PERSONALITY 🧬',
+                    style: AppTheme.mono(8,
+                            color: Colors.white.withValues(alpha: 0.48),
+                            weight: FontWeight.w700)
+                        .copyWith(letterSpacing: 2),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(p.title,
+                      style: AppTheme.baloo2(17,
+                          color: Colors.white, weight: FontWeight.w800)),
+                  const SizedBox(height: 1),
+                  Text(p.line,
+                      style: AppTheme.fredoka(13,
+                          color: Colors.white.withValues(alpha: 0.78),
+                          weight: FontWeight.w400)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── viral row (story card + send to delhiite + counter) ───────────────────
+
+  Widget _buildViralRow() {
+    final counter = StatsService.getDailyCounter();
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _HardButton(
+                onPressed: _showStoryDialog,
+                dark: false,
+                bgColor: const Color(0xFF9C27B0).withValues(alpha: 0.82),
+                fgColor: Colors.white,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text('📸', style: TextStyle(fontSize: 15)),
+                    const SizedBox(width: 6),
+                    Text('Story Card',
+                        style: AppTheme.fredoka(14,
+                            color: Colors.white, weight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _HardButton(
+                onPressed: _sendToDelhiite,
+                dark: false,
+                bgColor: const Color(0xFF1565C0).withValues(alpha: 0.82),
+                fgColor: Colors.white,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text('📨', style: TextStyle(fontSize: 15)),
+                    const SizedBox(width: 6),
+                    Text('Delhiite ko',
+                        style: AppTheme.fredoka(14,
+                            color: Colors.white, weight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 7,
+                height: 7,
+                decoration: const BoxDecoration(
+                    color: Color(0xFF66BB6A), shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '$counter Dilliwalon ne aaj check kiya',
+                style: AppTheme.fredoka(13,
+                    color: Colors.white.withValues(alpha: 0.78),
+                    weight: FontWeight.w500),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── dilli vs duniya comparison ────────────────────────────────────────────
+
+  Widget _buildDilliVsDuniyaCard() {
+    final allEntries = <Map<String, dynamic>>[
+      {'name': 'Delhi', 'flag': '🏛️', 'aqi': _aqi},
+      ..._worldCities
+          .map((c) => {'name': c.name, 'flag': c.flag, 'aqi': c.aqi}),
+      {'name': 'WHO Safe', 'flag': '🌱', 'aqi': 8},
+    ];
+
+    final maxAqi =
+        allEntries.map((e) => e['aqi'] as int).reduce(max).toDouble();
+    final displayMax = max(maxAqi, 50.0);
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+      decoration: BoxDecoration(
+        color: AppTheme.cream,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: const [
+          BoxShadow(
+              color: Color(0x1F000000), offset: Offset(0, 6), blurRadius: 0),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'DILLI VS DUNIYA',
+                style: AppTheme.mono(9,
+                        color: AppTheme.darkInk.withValues(alpha: 0.45),
+                        weight: FontWeight.w600)
+                    .copyWith(letterSpacing: 2),
+              ),
+              const SizedBox(width: 6),
+              const Text('🌍', style: TextStyle(fontSize: 13)),
+              if (_worldCities.isEmpty) ...[
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 10,
+                  height: 10,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 1.5,
+                    color: AppTheme.darkInk.withValues(alpha: 0.35),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 14),
+          ...allEntries.map((city) {
+            final cityAqi = city['aqi'] as int;
+            final cat = categoryForAqi(cityAqi);
+            final barFrac = (cityAqi / displayMax).clamp(0.02, 1.0);
+            final isDelhi = city['name'] == 'Delhi';
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Row(
+                children: [
+                  Text('${city['flag']} ',
+                      style: const TextStyle(fontSize: 13)),
+                  SizedBox(
+                    width: 64,
+                    child: Text(
+                      city['name'] as String,
+                      style: AppTheme.mono(
+                        10,
+                        color: isDelhi
+                            ? AppTheme.darkInk
+                            : AppTheme.darkInk.withValues(alpha: 0.65),
+                        weight: isDelhi ? FontWeight.w700 : FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (_, c) => Stack(
+                        children: [
+                          Container(
+                            height: 11,
+                            decoration: BoxDecoration(
+                              color: AppTheme.darkInk.withValues(alpha: 0.07),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                          ),
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 900),
+                            curve: Curves.easeOutCubic,
+                            width: c.maxWidth * barFrac,
+                            height: 11,
+                            decoration: BoxDecoration(
+                              color: isDelhi
+                                  ? cat.bgDeepColor
+                                  : cat.bgColor.withValues(alpha: 0.75),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 30,
+                    child: Text(
+                      '$cityAqi',
+                      textAlign: TextAlign.right,
+                      style: AppTheme.mono(
+                        10,
+                        color: isDelhi
+                            ? AppTheme.darkInk
+                            : AppTheme.darkInk.withValues(alpha: 0.60),
+                        weight: isDelhi ? FontWeight.w700 : FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+          const SizedBox(height: 2),
+          Text(
+            '🌱 WHO annual guideline: PM2.5 ≤ 5 µg/m³ (≈ AQI 8)',
+            style: AppTheme.mono(8,
+                    color: AppTheme.darkInk.withValues(alpha: 0.38),
+                    weight: FontWeight.w500)
+                .copyWith(letterSpacing: 0.2),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── monthly wrapped card ──────────────────────────────────────────────────
+
+  Widget _buildWrappedCard() {
+    final stats = _monthlyStats!;
+    final n = DateTime.now();
+    final monthName = [
+      '',
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ][n.month];
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+      decoration: BoxDecoration(
+        color: AppTheme.darkInk,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: const [
+          BoxShadow(
+              color: Color(0x2E000000), offset: Offset(0, 6), blurRadius: 0),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                '${monthName.toUpperCase()} KA HISAAB',
+                style: AppTheme.mono(9,
+                        color: Colors.white.withValues(alpha: 0.48),
+                        weight: FontWeight.w600)
+                    .copyWith(letterSpacing: 2),
+              ),
+              const Spacer(),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: _cat.bgColor.withValues(alpha: 0.20),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${stats.totalDays} days',
+                  style: AppTheme.mono(9,
+                      color: _cat.bgColor, weight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              _WrappedStat(
+                value: '${stats.worstAqi}',
+                label: 'Worst',
+                icon: '💀',
+                color: const Color(0xFFFF5252),
+              ),
+              const SizedBox(width: 10),
+              _WrappedStat(
+                value: '${stats.bestAqi}',
+                label: 'Best',
+                icon: '🌿',
+                color: const Color(0xFF66BB6A),
+              ),
+              const SizedBox(width: 10),
+              _WrappedStat(
+                value: stats.avgAqi.toStringAsFixed(0),
+                label: 'Average',
+                icon: '📈',
+                color: const Color(0xFFFFB74D),
+              ),
+            ],
+          ),
+          if (stats.cigarettesEquivalent >= 1) ...[
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  const Text('🚬', style: TextStyle(fontSize: 18)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Is mahine ≈ ${stats.cigarettesEquivalent.toStringAsFixed(0)} cigarettes ke barabar exposure',
+                      style: AppTheme.fredoka(13,
+                              color: Colors.white.withValues(alpha: 0.75),
+                              weight: FontWeight.w400)
+                          .copyWith(height: 1.3),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (stats.goodDays > 0 || stats.poorPlusDays > 0) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                if (stats.goodDays > 0)
+                  _DayBadge(
+                    count: stats.goodDays,
+                    label: 'Good days',
+                    color: const Color(0xFF66BB6A),
+                  ),
+                if (stats.moderateDays > 0)
+                  _DayBadge(
+                    count: stats.moderateDays,
+                    label: 'Moderate',
+                    color: const Color(0xFFFFB74D),
+                  ),
+                if (stats.poorPlusDays > 0)
+                  _DayBadge(
+                    count: stats.poorPlusDays,
+                    label: 'Poor+',
+                    color: const Color(0xFFFF5252),
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -2874,6 +3317,368 @@ class _PulseEmojiState extends State<_PulseEmoji>
       child: Text(widget.emoji, style: const TextStyle(fontSize: 15)),
     );
   }
+}
+
+// ── Wrapped stat tile ─────────────────────────────────────────────────────────
+
+class _WrappedStat extends StatelessWidget {
+  final String value;
+  final String label;
+  final String icon;
+  final Color color;
+
+  const _WrappedStat({
+    required this.value,
+    required this.label,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Column(
+          children: [
+            Text(icon, style: const TextStyle(fontSize: 18)),
+            const SizedBox(height: 4),
+            Text(value,
+                style: AppTheme.baloo2(18,
+                    color: color, weight: FontWeight.w800)),
+            Text(label,
+                style: AppTheme.mono(8,
+                        color: Colors.white.withValues(alpha: 0.45),
+                        weight: FontWeight.w600)
+                    .copyWith(letterSpacing: 0.3)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Day badge ─────────────────────────────────────────────────────────────────
+
+class _DayBadge extends StatelessWidget {
+  final int count;
+  final String label;
+  final Color color;
+
+  const _DayBadge(
+      {required this.count, required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.38), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('$count',
+              style: AppTheme.baloo2(13, color: color, weight: FontWeight.w800)),
+          const SizedBox(width: 4),
+          Text(label,
+              style: AppTheme.mono(8,
+                  color: color.withValues(alpha: 0.80), weight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Story Dialog ──────────────────────────────────────────────────────────────
+
+class _StoryDialog extends StatelessWidget {
+  final int aqi;
+  final AqiCategory cat;
+  final String verdict;
+  final String city;
+  final VoidCallback onWhatsApp;
+
+  const _StoryDialog({
+    required this.aqi,
+    required this.cat,
+    required this.verdict,
+    required this.city,
+    required this.onWhatsApp,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: GestureDetector(
+        onTap: () => Navigator.pop(context),
+        behavior: HitTestBehavior.opaque,
+        child: SafeArea(
+          child: Column(
+            children: [
+              const SizedBox(height: 24),
+              Text(
+                '📸 Screenshot karke share karo!',
+                style: AppTheme.baloo2(17,
+                    color: Colors.white, weight: FontWeight.w800),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Instagram Story ya WhatsApp Status mein',
+                style: AppTheme.fredoka(13,
+                    color: Colors.white.withValues(alpha: 0.65)),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: Center(
+                  child: GestureDetector(
+                    onTap: () {},
+                    child: SizedBox(
+                      width: 270,
+                      height: 480,
+                      child: _StoryCardContent(
+                          aqi: aqi, cat: cat, verdict: verdict, city: city),
+                    ),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+                child: Column(
+                  children: [
+                    _HardButton(
+                      onPressed: onWhatsApp,
+                      dark: false,
+                      bgColor: const Color(0xFF25D366),
+                      fgColor: Colors.white,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Text('💬', style: TextStyle(fontSize: 16)),
+                          const SizedBox(width: 8),
+                          Text(
+                            'WhatsApp pe share karo',
+                            style: AppTheme.fredoka(15,
+                                color: Colors.white, weight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: Text(
+                        '← Wapas jao',
+                        style: AppTheme.mono(11,
+                            color: Colors.white.withValues(alpha: 0.50)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Story card content (9:16 portrait shareable) ──────────────────────────────
+
+class _StoryCardContent extends StatelessWidget {
+  final int aqi;
+  final AqiCategory cat;
+  final String verdict;
+  final String city;
+
+  const _StoryCardContent({
+    required this.aqi,
+    required this.cat,
+    required this.verdict,
+    required this.city,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final n = DateTime.now();
+    final monthNames = [
+      '',
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    final date = '${n.day} ${monthNames[n.month]} ${n.year}';
+
+    final aqiEmoji = cat.key == 'GOOD'
+        ? '🌿'
+        : cat.key == 'SATISFACTORY'
+            ? '😐'
+            : cat.key == 'MODERATE'
+                ? '😷'
+                : cat.key == 'POOR'
+                    ? '🤧'
+                    : cat.key == 'VERY_POOR'
+                        ? '☠️'
+                        : '🆘';
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [cat.bgColor, cat.bgDeepColor],
+          ),
+        ),
+        child: Stack(
+          children: [
+            // Background rings
+            Positioned.fill(
+              child: CustomPaint(painter: _StoryBgPainter(cat.bgDeepColor)),
+            ),
+            // Content
+            Padding(
+              padding: const EdgeInsets.fromLTRB(22, 28, 22, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // App branding
+                  Row(children: [
+                    const Text('😮‍💨', style: TextStyle(fontSize: 18)),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Bahar Jaaun?',
+                      style: AppTheme.baloo2(15,
+                          color: Colors.white, weight: FontWeight.w800),
+                    ),
+                  ]),
+                  const SizedBox(height: 3),
+                  Text(
+                    '$date · $city',
+                    style: AppTheme.mono(9,
+                        color: Colors.white.withValues(alpha: 0.60),
+                        weight: FontWeight.w500),
+                  ),
+
+                  const Spacer(),
+
+                  // Big AQI
+                  Text(
+                    '$aqi',
+                    style: AppTheme.baloo2(80,
+                            color: Colors.white, weight: FontWeight.w900)
+                        .copyWith(height: 0.95, shadows: const [
+                      Shadow(
+                          color: Color(0x44000000),
+                          offset: Offset(0, 6),
+                          blurRadius: 0),
+                    ]),
+                  ),
+                  Text(
+                    'INDIA AQI · CPCB SCALE',
+                    style: AppTheme.mono(9,
+                            color: Colors.white.withValues(alpha: 0.52),
+                            weight: FontWeight.w600)
+                        .copyWith(letterSpacing: 1.5),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // Category pill
+                  Row(children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.38),
+                            width: 1.5),
+                      ),
+                      child: Text(
+                        cat.label.toUpperCase(),
+                        style: AppTheme.mono(12,
+                                color: Colors.white, weight: FontWeight.w700)
+                            .copyWith(letterSpacing: 0.8),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(aqiEmoji, style: const TextStyle(fontSize: 20)),
+                  ]),
+
+                  const SizedBox(height: 14),
+
+                  // Verdict
+                  Text(
+                    verdict,
+                    style: AppTheme.baloo2(15,
+                            color: Colors.white, weight: FontWeight.w700)
+                        .copyWith(height: 1.35),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+
+                  const Spacer(),
+
+                  // Bottom URL
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.20),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('🔗', style: TextStyle(fontSize: 11)),
+                        const SizedBox(width: 5),
+                        Text(
+                          'cipherabhi.com/bahar-jaaun',
+                          style: AppTheme.mono(9,
+                              color: Colors.white.withValues(alpha: 0.78),
+                              weight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StoryBgPainter extends CustomPainter {
+  final Color color;
+  const _StoryBgPainter(this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()..color = Colors.white.withValues(alpha: 0.05);
+    for (var i = 0; i < 7; i++) {
+      canvas.drawCircle(
+        Offset(size.width * 0.88, size.height * 0.14),
+        size.width * (0.35 + i * 0.16),
+        p,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_StoryBgPainter old) => old.color != color;
 }
 
 // ── Loading dots ──────────────────────────────────────────────────────────────

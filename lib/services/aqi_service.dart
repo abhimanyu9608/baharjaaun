@@ -105,6 +105,26 @@ const List<Map<String, dynamic>> _kDelhiAreas = [
   {'name': 'Gurgaon', 'lat': 28.4595, 'lon': 77.0266},
 ];
 
+class WorldCityAqi {
+  final String name;
+  final String flag;
+  final int aqi;
+  final AqiCategory category;
+  const WorldCityAqi({
+    required this.name,
+    required this.flag,
+    required this.aqi,
+    required this.category,
+  });
+}
+
+const List<Map<String, dynamic>> _kWorldCities = [
+  {'name': 'Mumbai',    'flag': '🌊', 'lat': 19.0760, 'lon': 72.8777},
+  {'name': 'London',    'flag': '🇬🇧', 'lat': 51.5074, 'lon': -0.1278},
+  {'name': 'New York',  'flag': '🗽', 'lat': 40.7128, 'lon': -74.0060},
+  {'name': 'Singapore', 'flag': '🦁', 'lat': 1.3521,  'lon': 103.8198},
+];
+
 class AqiService {
   static String _cacheKey(double lat, double lon) {
     final rLat = lat.toStringAsFixed(2);
@@ -361,6 +381,38 @@ class AqiService {
       }).toList();
       final results = await Future.wait(futures);
       return results.whereType<AreaAqi>().toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  // ── World cities AQI comparison ───────────────────────────────────────────
+
+  static Future<List<WorldCityAqi>> fetchWorldCities() async {
+    try {
+      final futures = _kWorldCities.map((city) async {
+        try {
+          final uri = Uri.parse(
+              '$_kBaseUrl/air_pollution?lat=${city['lat']}&lon=${city['lon']}&appid=$_kApiKey');
+          final res = await http.get(uri).timeout(const Duration(seconds: 8));
+          if (res.statusCode != 200) return null;
+          final data = json.decode(res.body) as Map<String, dynamic>;
+          final comp =
+              (data['list'] as List)[0]['components'] as Map<String, dynamic>;
+          final pm25 = (comp['pm2_5'] as num).toDouble();
+          final aqi = pm25ToIndiaAqi(pm25);
+          return WorldCityAqi(
+            name: city['name'] as String,
+            flag: city['flag'] as String,
+            aqi: aqi,
+            category: categoryForAqi(aqi),
+          );
+        } catch (_) {
+          return null;
+        }
+      }).toList();
+      final results = await Future.wait(futures);
+      return results.whereType<WorldCityAqi>().toList();
     } catch (_) {
       return [];
     }
