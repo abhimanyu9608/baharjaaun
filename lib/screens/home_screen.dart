@@ -7,6 +7,7 @@ import '../models/aqi_category.dart';
 import '../data/verdicts.dart';
 import '../services/aqi_service.dart';
 import '../services/location_service.dart';
+import '../services/streak_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/sky_particles.dart';
 import '../widgets/mascot.dart';
@@ -39,6 +40,12 @@ class _HomeScreenState extends State<HomeScreen>
   int? _previewIndex;   // null = show live data, 0-5 = preview that category
   bool _isRaining = false;
   String _previewVerdict = '';
+
+  // ── daily engagement features ──────────────────────────────────────────────
+  int _streakCount = 0;
+  bool _isRashifal = false;
+  ForecastResult? _forecast;
+  String? _villainKey;
 
   // ── derived display values ─────────────────────────────────────────────────
   AqiCategory get _cat =>
@@ -91,6 +98,7 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _loadData() async {
     setState(() { _loading = true; _error = null; _previewIndex = null; });
     try {
+      final streak = await StreakService.checkAndUpdate();
       final loc = await LocationService.getLocation();
       final result = await AqiService.fetch(loc.lat, loc.lon)
           .timeout(const Duration(seconds: 12));
@@ -100,18 +108,30 @@ class _HomeScreenState extends State<HomeScreen>
         _city = result.city;
         _isDefault = loc.isDefault;
         _liveCategory = result.category;
-        _liveVerdict = pickVerdict(result.category);
+        _liveVerdict = pickDailyVerdict(result.category);
+        _isRashifal = true;
+        _streakCount = streak.count;
+        _villainKey = findVillainKey(result.components);
         _loading = false;
       });
+      _loadForecast(loc.lat, loc.lon, result.aqi);
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _error = e.toString();
         _loading = false;
-        _liveVerdict = pickVerdict(_liveCategory);
+        _liveVerdict = pickDailyVerdict(_liveCategory);
+        _isRashifal = true;
       });
     }
     _entranceCtrl.forward(from: 0);
+  }
+
+  Future<void> _loadForecast(double lat, double lon, int todayAqi) async {
+    try {
+      final fc = await AqiService.fetchForecast(lat, lon, todayAqi);
+      if (mounted && fc != null) setState(() => _forecast = fc);
+    } catch (_) {}
   }
 
   void _applyPreview(int i) {
@@ -124,12 +144,14 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _nextVerdict() {
-    if (_previewIndex != null) {
-      setState(() => _previewVerdict =
-          pickVerdict2(kAllCategories[_previewIndex!], _previewVerdict));
-    } else {
-      setState(() => _liveVerdict = pickVerdict2(_liveCategory, _liveVerdict));
-    }
+    setState(() {
+      _isRashifal = false;
+      if (_previewIndex != null) {
+        _previewVerdict = pickVerdict2(kAllCategories[_previewIndex!], _previewVerdict);
+      } else {
+        _liveVerdict = pickVerdict2(_liveCategory, _liveVerdict);
+      }
+    });
   }
 
   Future<void> _share() async {
@@ -272,6 +294,14 @@ class _HomeScreenState extends State<HomeScreen>
                           _buildVerdictCard(),
                           const SizedBox(height: 12),
                           _buildActivityCard(),
+                          if (_villainKey != null && _previewIndex == null) ...[
+                            const SizedBox(height: 10),
+                            _buildVillainCard(),
+                          ],
+                          if (_forecast != null && _previewIndex == null) ...[
+                            const SizedBox(height: 12),
+                            _buildForecastCard(),
+                          ],
                           const SizedBox(height: 14),
                           _buildButtons(),
                           const SizedBox(height: 22),
@@ -300,39 +330,51 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _buildHeader() {
     return Padding(
       padding: const EdgeInsets.only(top: 16, bottom: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Bahar Jaaun?',
-                    style: AppTheme.baloo2(24,
-                        color: AppTheme.darkInk, weight: FontWeight.w800)),
-                Text('DELHI · ROZ KA SACH',
-                    style: AppTheme.mono(9,
-                        color: AppTheme.darkInk.withValues(alpha: 0.6),
-                        weight: FontWeight.w600)),
-              ],
-            ),
-          ),
-          GestureDetector(
-            onTap: _loadData,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 400),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              decoration: BoxDecoration(
-                color: AppTheme.darkInk,
-                borderRadius: BorderRadius.circular(20),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Bahar Jaaun?',
+                        style: AppTheme.baloo2(24,
+                            color: AppTheme.darkInk, weight: FontWeight.w800)),
+                    Text('DELHI · ROZ KA SACH',
+                        style: AppTheme.mono(9,
+                            color: AppTheme.darkInk.withValues(alpha: 0.6),
+                            weight: FontWeight.w600)),
+                  ],
+                ),
               ),
-              child: Text(
-                '📍 ${_isDefault ? 'New Delhi' : _city}',
-                style: AppTheme.mono(11,
-                    color: _cat.bgColor, weight: FontWeight.w600),
+              GestureDetector(
+                onTap: _loadData,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 400),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: AppTheme.darkInk,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '📍 ${_isDefault ? 'New Delhi' : _city}',
+                    style: AppTheme.mono(11,
+                        color: _cat.bgColor, weight: FontWeight.w600),
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
+          if (_streakCount > 0) ...[
+            const SizedBox(height: 7),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _StreakPill(count: _streakCount),
+            ),
+          ],
         ],
       ),
     );
@@ -475,9 +517,13 @@ class _HomeScreenState extends State<HomeScreen>
   // ── verdict card ───────────────────────────────────────────────────────────
 
   Widget _buildVerdictCard() {
+    final label = (_isRashifal && _previewIndex == null)
+        ? 'Aaj ka air-rashifal 🔮'
+        : 'Aaj ka faisla';
     return _VerdictCard(
       verdict: _verdict,
       healthFact: healthFact(_cat),
+      label: label,
     );
   }
 
@@ -515,6 +561,149 @@ class _HomeScreenState extends State<HomeScreen>
                       color: AppTheme.darkInk,
                       weight: FontWeight.w500)),
             )),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── villain of the day ────────────────────────────────────────────────────
+
+  Widget _buildVillainCard() {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 400),
+      child: Container(
+        key: ValueKey(_villainKey),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.18),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.22),
+            width: 1,
+          ),
+        ),
+        child: Text(
+          villainLine(_villainKey!),
+          style: AppTheme.fredoka(14, color: Colors.white, weight: FontWeight.w500)
+              .copyWith(height: 1.3),
+        ),
+      ),
+    );
+  }
+
+  // ── tomorrow's forecast card ───────────────────────────────────────────────
+
+  Widget _buildForecastCard() {
+    final fc = _forecast!;
+    final catColor = fc.tomorrowCategory.bgColor;
+    final line = pickForecastLine(fc.comparison);
+    final arrowLabel = fc.comparison == 'WORSE'
+        ? '↑ Worse than today'
+        : fc.comparison == 'BETTER'
+            ? '↓ Better than today'
+            : '↔ Similar to today';
+    final arrowColor = fc.comparison == 'WORSE'
+        ? const Color(0xFFFF8A80)
+        : fc.comparison == 'BETTER'
+            ? const Color(0xFF80FFAA)
+            : Colors.white.withValues(alpha: 0.45);
+
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 500),
+      transitionBuilder: (child, anim) => FadeTransition(
+        opacity: anim,
+        child: SlideTransition(
+          position: Tween<Offset>(
+                  begin: const Offset(0, 0.08), end: Offset.zero)
+              .animate(anim),
+          child: child,
+        ),
+      ),
+      child: Container(
+        key: ValueKey(fc.tomorrowAqi),
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+        decoration: BoxDecoration(
+          color: AppTheme.darkInk,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(
+            color: catColor.withValues(alpha: 0.28),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: catColor.withValues(alpha: 0.32),
+              offset: const Offset(0, 8),
+              blurRadius: 0,
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  'KAL KA HAAL',
+                  style: AppTheme.mono(10,
+                          color: Colors.white.withValues(alpha: 0.5),
+                          weight: FontWeight.w600)
+                      .copyWith(letterSpacing: 2),
+                ),
+                const SizedBox(width: 8),
+                const _PulseEmoji(emoji: '🔮'),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: fc.tomorrowAqi.toDouble()),
+                  duration: const Duration(milliseconds: 800),
+                  curve: Curves.easeOutCubic,
+                  builder: (ctx3, val, _) => Text(
+                    '${val.round()}',
+                    style: AppTheme.baloo2(40, color: catColor,
+                            weight: FontWeight.w800)
+                        .copyWith(height: 1),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: catColor,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        fc.tomorrowCategory.label.toUpperCase(),
+                        style: AppTheme.mono(10,
+                                color: Colors.white, weight: FontWeight.w700)
+                            .copyWith(letterSpacing: 0.5),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(arrowLabel,
+                        style: AppTheme.mono(9,
+                            color: arrowColor, weight: FontWeight.w600)),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              line,
+              style: AppTheme.fredoka(15,
+                      color: Colors.white.withValues(alpha: 0.85))
+                  .copyWith(height: 1.3),
+            ),
+            const SizedBox(height: 14),
+            _AqiBar(aqi: fc.tomorrowAqi),
           ],
         ),
       ),
@@ -719,7 +908,12 @@ class _RainToggle extends StatelessWidget {
 class _VerdictCard extends StatefulWidget {
   final String verdict;
   final String healthFact;
-  const _VerdictCard({required this.verdict, required this.healthFact});
+  final String label;
+  const _VerdictCard({
+    required this.verdict,
+    required this.healthFact,
+    required this.label,
+  });
 
   @override
   State<_VerdictCard> createState() => _VerdictCardState();
@@ -767,13 +961,17 @@ class _VerdictCardState extends State<_VerdictCard>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // "Aaj ka faisla" label — mono 10px uppercase, opacity .5
-          Text(
-            'Aaj ka faisla',
-            style: AppTheme.mono(10,
-                color: AppTheme.darkInk.withValues(alpha: 0.5),
-                weight: FontWeight.w600)
-                .copyWith(letterSpacing: 2),
+          // Label: "Aaj ka air-rashifal 🔮" on first open, else "Aaj ka faisla"
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            child: Text(
+              widget.label,
+              key: ValueKey(widget.label),
+              style: AppTheme.mono(10,
+                      color: AppTheme.darkInk.withValues(alpha: 0.5),
+                      weight: FontWeight.w600)
+                  .copyWith(letterSpacing: 1.5),
+            ),
           ),
           const SizedBox(height: 9),
 
@@ -1271,6 +1469,122 @@ class _AqiBar extends StatelessWidget {
         ],
       );
     });
+  }
+}
+
+// ── Streak pill (🔥 n din) ────────────────────────────────────────────────────
+
+class _StreakPill extends StatefulWidget {
+  final int count;
+  const _StreakPill({required this.count});
+
+  @override
+  State<_StreakPill> createState() => _StreakPillState();
+}
+
+class _StreakPillState extends State<_StreakPill>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 700));
+    _scale = CurvedAnimation(parent: _ctrl, curve: Curves.elasticOut);
+    _ctrl.forward();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.count == 0) return const SizedBox.shrink();
+    final isMilestone = kStreakMilestones.containsKey(widget.count);
+
+    return ScaleTransition(
+      scale: _scale,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+            decoration: BoxDecoration(
+              color: isMilestone
+                  ? const Color(0xFFFF6B35)
+                  : Colors.white.withValues(alpha: 0.20),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.45),
+                width: 1,
+              ),
+            ),
+            child: Text(
+              '🔥 ${widget.count} din',
+              style: AppTheme.mono(10,
+                  color: Colors.white, weight: FontWeight.w700),
+            ),
+          ),
+          if (isMilestone) ...[
+            const SizedBox(height: 3),
+            Text(
+              kStreakMilestones[widget.count]!,
+              style: AppTheme.fredoka(11,
+                  color: Colors.white.withValues(alpha: 0.75),
+                  weight: FontWeight.w500),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ── Pulsing emoji (used for 🔮 in forecast card) ──────────────────────────────
+
+class _PulseEmoji extends StatefulWidget {
+  final String emoji;
+  const _PulseEmoji({required this.emoji});
+
+  @override
+  State<_PulseEmoji> createState() => _PulseEmojiState();
+}
+
+class _PulseEmojiState extends State<_PulseEmoji>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 1600))
+      ..repeat(reverse: true);
+    _scale = Tween<double>(begin: 0.85, end: 1.15)
+        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (MediaQuery.of(context).disableAnimations) {
+      return Text(widget.emoji, style: const TextStyle(fontSize: 15));
+    }
+    return ScaleTransition(
+      scale: _scale,
+      child: Text(widget.emoji, style: const TextStyle(fontSize: 15)),
+    );
   }
 }
 
