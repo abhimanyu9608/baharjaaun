@@ -5,9 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/aqi_category.dart';
 import '../data/verdicts.dart';
+import '../data/outfit_tips.dart';
 import '../services/aqi_service.dart';
 import '../services/location_service.dart';
 import '../services/streak_service.dart';
+import '../services/history_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/sky_particles.dart';
 import '../widgets/mascot.dart';
@@ -46,6 +48,12 @@ class _HomeScreenState extends State<HomeScreen>
   bool _isRashifal = false;
   ForecastResult? _forecast;
   String? _villainKey;
+
+  // ── history & extras ───────────────────────────────────────────────────────
+  List<int?> _weekHistory = [];
+  int _daysSinceGood = -1;
+  List<AreaAqi> _nearbyAreas = [];
+  bool _shareToast = false;
 
   // ── derived display values ─────────────────────────────────────────────────
   AqiCategory get _cat =>
@@ -115,6 +123,8 @@ class _HomeScreenState extends State<HomeScreen>
         _loading = false;
       });
       _loadForecast(loc.lat, loc.lon, result.aqi);
+      _loadHistoryAndExtras(result.aqi, result.category.key);
+      _loadNearbyAreas();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -132,6 +142,23 @@ class _HomeScreenState extends State<HomeScreen>
       final fc = await AqiService.fetchForecast(lat, lon, todayAqi);
       if (mounted && fc != null) setState(() => _forecast = fc);
     } catch (_) {}
+  }
+
+  Future<void> _loadHistoryAndExtras(int aqi, String catKey) async {
+    await HistoryService.recordAqi(aqi, catKey);
+    final history = await HistoryService.getLast7Days();
+    final days = await HistoryService.daysSinceGood();
+    if (mounted) {
+      setState(() {
+        _weekHistory = history;
+        _daysSinceGood = days;
+      });
+    }
+  }
+
+  Future<void> _loadNearbyAreas() async {
+    final areas = await AqiService.fetchNearbyAreas();
+    if (mounted && areas.isNotEmpty) setState(() => _nearbyAreas = areas);
   }
 
   void _applyPreview(int i) {
@@ -154,14 +181,40 @@ class _HomeScreenState extends State<HomeScreen>
     });
   }
 
-  Future<void> _share() async {
-    final text = '$_verdict — AQI $_aqi (${_cat.label}) $_city. $_kSiteUrl';
-    try { await Clipboard.setData(ClipboardData(text: text)); } catch (_) {}
+  String _buildShareText() {
+    final emoji = _cat.key == 'GOOD'
+        ? '🌿'
+        : _cat.key == 'SATISFACTORY'
+            ? '😐'
+            : _cat.key == 'MODERATE'
+                ? '😷'
+                : _cat.key == 'POOR'
+                    ? '🤧'
+                    : '☠️';
+    return '$emoji Aaj Delhi ka AQI $_aqi hai — ${_cat.label.toUpperCase()}!\n\n'
+        '"$_verdict"\n\n'
+        'Bahar jaana chahiye? Check karo:\n$_kSiteUrl';
+  }
+
+  Future<void> _copyShare() async {
+    await Clipboard.setData(ClipboardData(text: _buildShareText()));
+    if (!mounted) return;
+    setState(() => _shareToast = true);
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _shareToast = false);
+    });
+  }
+
+  Future<void> _whatsappShare() async {
+    final text = _buildShareText();
     final wa = Uri.parse('https://wa.me/?text=${Uri.encodeComponent(text)}');
     if (await canLaunchUrl(wa)) {
       await launchUrl(wa, mode: LaunchMode.externalApplication);
     }
   }
+
+  // kept for legacy callers
+  Future<void> _share() async => _whatsappShare();
 
   @override
   void dispose() { _entranceCtrl.dispose(); super.dispose(); }
@@ -198,6 +251,28 @@ class _HomeScreenState extends State<HomeScreen>
                     ? (_forecast?.todayHours ?? const [])
                     : const [],
               )),
+              // Confetti when AQI is GOOD — rare event, celebrate it!
+              if (_cat.key == 'GOOD' && !_loading)
+                const IgnorePointer(child: _ConfettiOverlay()),
+              // Copy-to-clipboard toast
+              if (_shareToast)
+                Positioned(
+                  bottom: 32, left: 0, right: 0,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: AppTheme.darkInk,
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: Text('📋 Copied! Paste karo WhatsApp mein',
+                          style: AppTheme.fredoka(14,
+                              color: Colors.white,
+                              weight: FontWeight.w500)),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
@@ -315,6 +390,21 @@ class _HomeScreenState extends State<HomeScreen>
                             const SizedBox(height: 12),
                             _buildSafeHoursCard(),
                           ],
+                          // ── new feature cards ───────────────────────────
+                          if (_previewIndex == null) ...[
+                            const SizedBox(height: 12),
+                            _buildShareRow(),
+                            const SizedBox(height: 12),
+                            _buildOutfitCard(),
+                          ],
+                          if (_weekHistory.any((v) => v != null)) ...[
+                            const SizedBox(height: 12),
+                            _buildSparklineCard(),
+                          ],
+                          if (_nearbyAreas.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            _buildNeighborhoodCard(),
+                          ],
                           const SizedBox(height: 14),
                           _buildButtons(),
                           const SizedBox(height: 22),
@@ -383,10 +473,26 @@ class _HomeScreenState extends State<HomeScreen>
           ),
           if (_streakCount > 0) ...[
             const SizedBox(height: 7),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: _StreakPill(count: _streakCount),
-            ),
+            Row(children: [
+              _StreakPill(count: _streakCount),
+              if (_daysSinceGood > 0) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '🌿 ${_daysSinceGood}d bina saaf hawa ke',
+                    style: AppTheme.mono(9,
+                        color: Colors.white.withValues(alpha: 0.70),
+                        weight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ]),
           ],
         ],
       ),
@@ -424,6 +530,17 @@ class _HomeScreenState extends State<HomeScreen>
 
           // Cloud
           const Positioned(top: 24, left: 0, child: _SlidingCloud()),
+
+          // Delhi skyline silhouette (behind everything)
+          Positioned(
+            bottom: 14, left: 0, right: 0,
+            child: CustomPaint(
+              size: const Size(double.infinity, 80),
+              painter: _DelhiSkylinePainter(
+                color: Colors.black.withValues(alpha: 0.10 + _aqi / 600 * 0.14),
+              ),
+            ),
+          ),
 
           // Ground arc
           Positioned(
@@ -857,6 +974,212 @@ class _HomeScreenState extends State<HomeScreen>
                 );
               }).toList(),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── share row ─────────────────────────────────────────────────────────────
+
+  Widget _buildShareRow() {
+    return Row(children: [
+      Expanded(
+        child: _HardButton(
+          onPressed: _copyShare,
+          dark: false,
+          bgColor: Colors.black.withValues(alpha: 0.18),
+          fgColor: Colors.white,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text('📋', style: TextStyle(fontSize: 15)),
+              const SizedBox(width: 6),
+              Text('Copy karo',
+                  style: AppTheme.fredoka(14,
+                      color: Colors.white, weight: FontWeight.w600)),
+            ],
+          ),
+        ),
+      ),
+      const SizedBox(width: 10),
+      Expanded(
+        child: _HardButton(
+          onPressed: _whatsappShare,
+          dark: false,
+          bgColor: const Color(0xFF25D366).withValues(alpha: 0.85),
+          fgColor: Colors.white,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text('💬', style: TextStyle(fontSize: 15)),
+              const SizedBox(width: 6),
+              Text('WhatsApp',
+                  style: AppTheme.fredoka(14,
+                      color: Colors.white, weight: FontWeight.w600)),
+            ],
+          ),
+        ),
+      ),
+    ]);
+  }
+
+  // ── outfit card ───────────────────────────────────────────────────────────
+
+  Widget _buildOutfitCard() {
+    final tip = kOutfitTips[_cat.key] ??
+        kOutfitTips['MODERATE']!;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+      decoration: BoxDecoration(
+        color: AppTheme.cream,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: const [
+          BoxShadow(
+              color: Color(0x1F000000),
+              offset: Offset(0, 6),
+              blurRadius: 0),
+        ],
+      ),
+      child: Row(
+        children: [
+          Text(tip.emoji,
+              style: const TextStyle(fontSize: 36)),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'KYA PEHNU AAJ? 👗',
+                  style: AppTheme.mono(9,
+                          color: AppTheme.darkInk.withValues(alpha: 0.45),
+                          weight: FontWeight.w600)
+                      .copyWith(letterSpacing: 2),
+                ),
+                const SizedBox(height: 4),
+                Text(tip.title,
+                    style: AppTheme.fredoka(15,
+                        color: AppTheme.darkInk,
+                        weight: FontWeight.w600)),
+                Text(tip.sub,
+                    style: AppTheme.fredoka(13,
+                        color: AppTheme.darkInk.withValues(alpha: 0.60),
+                        weight: FontWeight.w400)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── weekly sparkline card ─────────────────────────────────────────────────
+
+  Widget _buildSparklineCard() {
+    final now = DateTime.now();
+    final labels = List.generate(7, (i) {
+      final d = now.subtract(Duration(days: 6 - i));
+      return ['S', 'M', 'T', 'W', 'T', 'F', 'S'][d.weekday % 7];
+    });
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+      decoration: BoxDecoration(
+        color: AppTheme.darkInk,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: const [
+          BoxShadow(
+              color: Color(0x2E000000),
+              offset: Offset(0, 6),
+              blurRadius: 0),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'IS HAFTE KI KAHANI 📊',
+            style: AppTheme.mono(9,
+                    color: Colors.white.withValues(alpha: 0.45),
+                    weight: FontWeight.w600)
+                .copyWith(letterSpacing: 2),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 64,
+            child: CustomPaint(
+              size: const Size(double.infinity, 64),
+              painter: _SparklinePainter(
+                  values: _weekHistory, labels: labels),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── neighborhood comparison card ──────────────────────────────────────────
+
+  Widget _buildNeighborhoodCard() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+      decoration: BoxDecoration(
+        color: AppTheme.cream,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: const [
+          BoxShadow(
+              color: Color(0x1F000000),
+              offset: Offset(0, 6),
+              blurRadius: 0),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'DELHI AREAS AAJKAL 🗺️',
+            style: AppTheme.mono(9,
+                    color: AppTheme.darkInk.withValues(alpha: 0.45),
+                    weight: FontWeight.w600)
+                .copyWith(letterSpacing: 2),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _nearbyAreas.map((area) {
+              final color = area.category.bgColor;
+              return Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                      color: color.withValues(alpha: 0.50), width: 1.5),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 8, height: 8,
+                      decoration: BoxDecoration(
+                          color: color, shape: BoxShape.circle),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(area.name,
+                        style: AppTheme.mono(10,
+                            color: AppTheme.darkInk,
+                            weight: FontWeight.w700)),
+                    const SizedBox(width: 4),
+                    Text('${area.aqi}',
+                        style: AppTheme.mono(10,
+                            color: AppTheme.darkInk.withValues(alpha: 0.65),
+                            weight: FontWeight.w600)),
+                  ],
+                ),
+              );
+            }).toList(),
           ),
         ],
       ),
@@ -2063,6 +2386,256 @@ class _SideOrbsState extends State<_SideOrbs>
       ),
     );
   }
+}
+
+// ── Delhi skyline painter ────────────────────────────────────────────────────
+
+class _DelhiSkylinePainter extends CustomPainter {
+  final Color color;
+  const _DelhiSkylinePainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()..color = color..style = PaintingStyle.fill;
+    final w = size.width;
+    final h = size.height;
+
+    // Building silhouettes from left to right
+    final path = Path();
+    path.moveTo(0, h);
+
+    // Left cluster of buildings
+    _rect(path, w * 0.00, h, w * 0.06, h * 0.55);
+    _rect(path, w * 0.06, h, w * 0.10, h * 0.35);
+    _rect(path, w * 0.10, h, w * 0.15, h * 0.65);
+
+    // India Gate arch (center-left)
+    final gateX = w * 0.28;
+    path.lineTo(gateX - w * 0.05, h);
+    path.lineTo(gateX - w * 0.05, h * 0.42);
+    path.lineTo(gateX - w * 0.03, h * 0.42);
+    // arch
+    path.arcToPoint(
+      Offset(gateX + w * 0.03, h * 0.42),
+      radius: Radius.circular(w * 0.035),
+      clockwise: false,
+    );
+    path.lineTo(gateX + w * 0.05, h * 0.42);
+    path.lineTo(gateX + w * 0.05, h);
+
+    // Mid buildings
+    _rect(path, w * 0.38, h, w * 0.42, h * 0.50);
+    _rect(path, w * 0.42, h, w * 0.47, h * 0.70);
+
+    // Qutub Minar (center-right) — tall tapered tower
+    final minarX = w * 0.60;
+    path.lineTo(minarX - w * 0.015, h);
+    path.lineTo(minarX - w * 0.012, h * 0.55);
+    path.lineTo(minarX - w * 0.008, h * 0.30);
+    path.lineTo(minarX - w * 0.005, h * 0.12);
+    // top bulge
+    path.quadraticBezierTo(minarX, h * 0.06, minarX + w * 0.005, h * 0.12);
+    path.lineTo(minarX + w * 0.008, h * 0.30);
+    path.lineTo(minarX + w * 0.012, h * 0.55);
+    path.lineTo(minarX + w * 0.015, h);
+
+    // Right cluster
+    _rect(path, w * 0.68, h, w * 0.74, h * 0.45);
+    _rect(path, w * 0.74, h, w * 0.80, h * 0.60);
+    _rect(path, w * 0.80, h, w * 0.86, h * 0.38);
+    _rect(path, w * 0.86, h, w * 0.92, h * 0.58);
+    _rect(path, w * 0.92, h, w * 1.00, h * 0.48);
+
+    path.lineTo(w, h);
+    path.close();
+    canvas.drawPath(path, p);
+  }
+
+  void _rect(Path path, double x1, double bottom, double x2, double top) {
+    path.lineTo(x1, bottom);
+    path.lineTo(x1, top);
+    path.lineTo(x2, top);
+    path.lineTo(x2, bottom);
+  }
+
+  @override
+  bool shouldRepaint(_DelhiSkylinePainter old) => old.color != color;
+}
+
+// ── Weekly sparkline painter ──────────────────────────────────────────────────
+
+class _SparklinePainter extends CustomPainter {
+  final List<int?> values;
+  final List<String> labels;
+  const _SparklinePainter({required this.values, required this.labels});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (values.isEmpty) return;
+
+    final maxAqi = values.whereType<int>().fold(0, max).toDouble();
+    final displayMax = maxAqi < 100 ? 100.0 : maxAqi * 1.15;
+
+    final barW = size.width / values.length;
+    final barZone = size.height - 18; // leave space for labels
+
+    for (int i = 0; i < values.length; i++) {
+      final v = values[i];
+      final cx = barW * i + barW / 2;
+
+      // Label
+      final lbl = TextPainter(
+        text: TextSpan(
+          text: labels[i],
+          style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.38),
+              fontSize: 9,
+              fontWeight: FontWeight.w600),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      lbl.paint(canvas,
+          Offset(cx - lbl.width / 2, size.height - lbl.height));
+
+      if (v == null) continue;
+
+      final frac = (v / displayMax).clamp(0.04, 1.0);
+      final barH = frac * barZone;
+      final top = barZone - barH;
+
+      final color = v < 100
+          ? const Color(0xFF46C07A)
+          : v < 200
+              ? const Color(0xFFE8C23A)
+              : v < 300
+                  ? const Color(0xFFE07840)
+                  : const Color(0xFFCC3333);
+
+      final rr = RRect.fromRectAndRadius(
+        Rect.fromLTWH(cx - barW * 0.28, top, barW * 0.56, barH),
+        const Radius.circular(4),
+      );
+      canvas.drawRRect(
+          rr, Paint()..color = color.withValues(alpha: 0.75)..style = PaintingStyle.fill);
+
+      // AQI label on bar
+      final valLbl = TextPainter(
+        text: TextSpan(
+          text: '$v',
+          style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.80),
+              fontSize: 8,
+              fontWeight: FontWeight.w700),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      if (barH > 16) {
+        valLbl.paint(canvas, Offset(cx - valLbl.width / 2, top + 3));
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SparklinePainter old) => old.values != values;
+}
+
+// ── Confetti overlay ─────────────────────────────────────────────────────────
+
+class _ConfettiOverlay extends StatefulWidget {
+  const _ConfettiOverlay();
+
+  @override
+  State<_ConfettiOverlay> createState() => _ConfettiOverlayState();
+}
+
+class _ConfettiOverlayState extends State<_ConfettiOverlay>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late List<_ConfettiPiece> _pieces;
+
+  static const _colors = [
+    Color(0xFFFF6B6B),
+    Color(0xFFFFD93D),
+    Color(0xFF6BCB77),
+    Color(0xFF4D96FF),
+    Color(0xFFFF9671),
+    Color(0xFFC77DFF),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+        vsync: this, duration: const Duration(seconds: 5))
+      ..repeat();
+    final rng = Random();
+    _pieces = List.generate(45, (i) => _ConfettiPiece(
+      x: rng.nextDouble(),
+      phase: rng.nextDouble(),
+      speed: 0.14 + rng.nextDouble() * 0.22,
+      size: 5 + rng.nextDouble() * 7,
+      color: _colors[rng.nextInt(_colors.length)],
+      rotation: rng.nextDouble(),
+      wide: rng.nextBool(),
+    ));
+  }
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    final sz = MediaQuery.of(context).size;
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (ctx, _) {
+        final t = _ctrl.value;
+        return Stack(
+          children: _pieces.map((p) {
+            final phase = (t * p.speed + p.phase) % 1.0;
+            final y = phase;
+            final swayX = sin(phase * 2 * pi * 2.2 + p.phase * 7) * 0.035;
+            final opacity = y > 0.80
+                ? (1 - (y - 0.80) / 0.20).clamp(0.0, 1.0)
+                : 1.0;
+            return Positioned(
+              left: ((p.x + swayX).clamp(0.0, 0.98)) * sz.width,
+              top: y * sz.height,
+              child: Opacity(
+                opacity: opacity,
+                child: Transform.rotate(
+                  angle: phase * 2 * pi * p.rotation * 3,
+                  child: Container(
+                    width: p.wide ? p.size * 1.8 : p.size,
+                    height: p.wide ? p.size * 0.5 : p.size,
+                    decoration: BoxDecoration(
+                      color: p.color.withValues(alpha: 0.82),
+                      borderRadius: BorderRadius.circular(p.size * 0.2),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+}
+
+class _ConfettiPiece {
+  final double x, phase, speed, size, rotation;
+  final Color color;
+  final bool wide;
+  const _ConfettiPiece({
+    required this.x,
+    required this.phase,
+    required this.speed,
+    required this.size,
+    required this.color,
+    required this.rotation,
+    required this.wide,
+  });
 }
 
 // ── Stat pill (PM2.5, temp) ───────────────────────────────────────────────────

@@ -90,6 +90,21 @@ String? findVillainKey(AqiComponents? c) {
   return max.value >= 1.0 ? max.key : null;
 }
 
+class AreaAqi {
+  final String name;
+  final int aqi;
+  final AqiCategory category;
+  const AreaAqi({required this.name, required this.aqi, required this.category});
+}
+
+const List<Map<String, dynamic>> _kDelhiAreas = [
+  {'name': 'CP',      'lat': 28.6289, 'lon': 77.2065},
+  {'name': 'Dwarka',  'lat': 28.5921, 'lon': 77.0460},
+  {'name': 'Rohini',  'lat': 28.7495, 'lon': 77.0574},
+  {'name': 'Noida',   'lat': 28.5355, 'lon': 77.3910},
+  {'name': 'Gurgaon', 'lat': 28.4595, 'lon': 77.0266},
+];
+
 class AqiService {
   static String _cacheKey(double lat, double lon) {
     final rLat = lat.toStringAsFixed(2);
@@ -318,6 +333,36 @@ class AqiService {
       );
     } catch (_) {
       return null;
+    }
+  }
+
+  // ── Nearby Delhi areas AQI ───────────────────────────────────────────────
+
+  static Future<List<AreaAqi>> fetchNearbyAreas() async {
+    try {
+      final futures = _kDelhiAreas.map((area) async {
+        try {
+          final uri = Uri.parse(
+              '$_kBaseUrl/air_pollution?lat=${area['lat']}&lon=${area['lon']}&appid=$_kApiKey');
+          final res = await http.get(uri).timeout(const Duration(seconds: 8));
+          if (res.statusCode != 200) return null;
+          final data = json.decode(res.body) as Map<String, dynamic>;
+          final comp =
+              (data['list'] as List)[0]['components'] as Map<String, dynamic>;
+          final pm25 = (comp['pm2_5'] as num).toDouble();
+          final aqi = pm25ToIndiaAqi(pm25);
+          return AreaAqi(
+              name: area['name'] as String,
+              aqi: aqi,
+              category: categoryForAqi(aqi));
+        } catch (_) {
+          return null;
+        }
+      }).toList();
+      final results = await Future.wait(futures);
+      return results.whereType<AreaAqi>().toList();
+    } catch (_) {
+      return [];
     }
   }
 
